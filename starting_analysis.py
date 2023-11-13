@@ -3,11 +3,14 @@ import matplotlib.pyplot as plt
 
 # Load "Music Charts.csv"
 music_df = pd.read_csv("Music Charts.csv")  # Default delimiter is comma
+print(music_df.columns)
 # Convert WeekID to datetime format
 music_df['WeekID'] = pd.to_datetime(music_df['WeekID'])
 
 # Load "LA weather.csv"
 weather_df = pd.read_csv("LA weather.csv")
+
+print(weather_df.columns)
 # Convert DATE to datetime format
 weather_df['DATE'] = pd.to_datetime(weather_df['DATE'], format='%d/%m/%Y')
 

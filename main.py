@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from scipy.signal import stft
+from scipy.ndimage import gaussian_filter
 import os
 import pickle
 import charts_NLP
@@ -14,7 +15,7 @@ def load_or_create_topic_strengths(filename, num_topics):
             return pickle.load(file)
     else:
         # Generate data
-        weekly_topic_strengths_data = charts_NLP.main(show_graph=False, num_topics=num_topics)
+        weekly_topic_strengths_data = charts_NLP.main(show_graph=True, num_topics=num_topics)
         # Extract and save only the necessary data from weekly_topic_strengths
         data_to_save = {week: {topic: strength for topic, strength in topics.items()} 
                         for week, topics in weekly_topic_strengths_data.items()}
@@ -95,8 +96,38 @@ def main():
     plt.legend()
     plt.show()
 
-if __name__ == '__main__':
-    main()
+    ####aggregated day of year plot
+
+
+    # New code for plotting NLP strengths against the day of the year
+    daily_topic_strengths = defaultdict(lambda: np.zeros(366))  # Initialize array for each day of the year
+    for date, strengths in weekly_topic_strengths.items():
+        day_of_year = date.timetuple().tm_yday  # Get day of the year
+        for topic in range(num_topics):
+            daily_topic_strengths[topic][day_of_year - 1] += strengths.get(topic, 0)
+
+    # Line graph for NLP strengths
+    plt.figure(figsize=(15, 10))
+    for topic, strengths in daily_topic_strengths.items():
+        plt.plot(range(1, 367), strengths, label=f'Topic {topic + 1}')
+
+    plt.title("NLP Strengths by Day of the Year")
+    plt.xlabel("Day of the Year")
+    plt.ylabel("Topic Strength")
+    plt.legend()
+    plt.show()
+
+    # Smoothed line graph using Gaussian filter
+    plt.figure(figsize=(15, 10))
+    for topic, strengths in daily_topic_strengths.items():
+        smoothed_strengths = gaussian_filter(strengths, sigma=5)  # Apply Gaussian filter for smoothing
+        plt.plot(range(1, 367), smoothed_strengths, label=f'Topic {topic + 1}')
+
+    plt.title("Smoothed NLP Strengths by Day of the Year (Gaussian Filter)")
+    plt.xlabel("Day of the Year")
+    plt.ylabel("Smoothed Topic Strength")
+    plt.legend()
+    plt.show()
 
 if __name__ == '__main__':
     main()

@@ -7,6 +7,15 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from tqdm import tqdm  # Import tqdm
 
+def augment_corpus_with_custom_keywords(processed_texts, keyword, boost_factor=100):
+    augmented_texts = []
+    for text in processed_texts:
+        if keyword in text:
+            augmented_texts.append(text + [keyword] * boost_factor)
+        else:
+            augmented_texts.append(text)
+    return augmented_texts
+
 def main(show_graph=True, num_topics=5):
 
     print("Loading dataset...")
@@ -36,6 +45,10 @@ def main(show_graph=True, num_topics=5):
         chunk = music_df['text'][start:start + chunk_size]
         processed_chunk = chunk.apply(preprocess_text)
         processed_texts.extend(processed_chunk)
+
+    custom_keyword = "christmas"
+    processed_texts = augment_corpus_with_custom_keywords(processed_texts, custom_keyword)
+    
     music_df['text'] = processed_texts
 
     print("Creating dictionary and document-term matrix...")

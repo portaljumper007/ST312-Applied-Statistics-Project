@@ -60,7 +60,7 @@ def main():
     autocorrelation_results = defaultdict(list)
 
     for topic, strengths in topic_strengths_aligned.items():
-        # Fill NaNs with zeros if needed
+        # Filling NaNs with zeros
         strengths_filled = np.nan_to_num(strengths)
 
         f, t, Zxx = stft(strengths_filled, window='hamming', nperseg=window_size)

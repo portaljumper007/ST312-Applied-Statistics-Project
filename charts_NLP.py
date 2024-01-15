@@ -6,6 +6,11 @@ from nltk.stem.wordnet import WordNetLemmatizer
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from tqdm import tqdm  # Import tqdm
+from nltk.sentiment import SentimentIntensityAnalyzer
+
+sid = SentimentIntensityAnalyzer()
+def filter_by_sentiment_intensity(tokens):
+    return [word for word in tokens if abs(sid.polarity_scores(word)['compound']) > 0.6]
 
 def augment_corpus_with_custom_keywords(processed_texts, keyword, boost_factor=100):
     augmented_texts = []
@@ -27,7 +32,8 @@ def main(show_graph=True, num_topics=5):
     nltk.download('wordnet')
 
     # Load stopwords and lemmatizer just once
-    stop_words = set(stopwords.words('english'))
+    custom_stop_words = ['like','know','time','one','na','let','go','new','want','back','come','take'] # Adding our own stopwords because nltk ones aren't enough
+    stop_words = set(stopwords.words('english') + custom_stop_words)
     lemmatizer = WordNetLemmatizer()
 
     def preprocess_text(text):
@@ -36,6 +42,7 @@ def main(show_graph=True, num_topics=5):
         tokens = [word for word in tokens if word not in stop_words]
         tokens = [word for word in tokens if len(word) > 3]
         tokens = [lemmatizer.lemmatize(word) for word in tokens]
+        tokens = filter_by_sentiment_intensity(tokens)
         return tokens
 
     print("Preprocessing text...")
@@ -75,7 +82,7 @@ def main(show_graph=True, num_topics=5):
 
     if show_graph:
         # Extracting topic descriptions
-        topic_descriptions = {i: ' '.join([word for word, prob in lda.show_topic(i, topn=5)]) for i in range(num_topics)}
+        topic_descriptions = {i: ' '.join([word for word, prob in lda.show_topic(i, topn=5) if prob > 0.01]) for i in range(num_topics)}
 
         print("Plotting topic strengths over time...")
         plt.figure(figsize=(15, 10))

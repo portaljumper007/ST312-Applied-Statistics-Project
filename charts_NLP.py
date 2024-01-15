@@ -34,6 +34,7 @@ def main(show_graph=True, num_topics=5):
         tokens = nltk.word_tokenize(text.lower())
         tokens = [word for word in tokens if word.isalpha()]
         tokens = [word for word in tokens if word not in stop_words]
+        tokens = [word for word in tokens if len(word) > 3]
         tokens = [lemmatizer.lemmatize(word) for word in tokens]
         return tokens
 

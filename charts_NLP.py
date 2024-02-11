@@ -56,7 +56,7 @@ def main(show_graph=True, num_topics=5):
 
     custom_keyword = "christmas"
     processed_texts = augment_corpus_with_custom_keywords(processed_texts, custom_keyword)
-    
+
     music_df['text'] = processed_texts
 
     print("Creating dictionary and document-term matrix...")
@@ -75,7 +75,7 @@ def main(show_graph=True, num_topics=5):
         week = row['WeekID']
         position = row['Week Position']
         topics = lda.get_document_topics(doc_term_matrix[index])
-        
+
         for topic, strength in topics:
             weighted_strength = strength / position
             weekly_topic_strengths[week][topic] += weighted_strength
@@ -98,8 +98,9 @@ def main(show_graph=True, num_topics=5):
         plt.ylabel("Topic Strength")
         plt.legend()
         plt.show()
-    
     return weekly_topic_strengths
+
 
 if __name__ == '__main__': #Check we're in the main thread for multiprocessing inside gensim multicore LDA
     main(show_graph=True)
+

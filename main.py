@@ -6,8 +6,14 @@ from scipy.signal import stft
 from scipy.ndimage import gaussian_filter
 import os
 import pickle
-import charts_NLP
+import charts_NLP_tristan_filter
 import matplotlib.dates as mdates
+import pandas as pd
+import numpy as np
+import plotly.graph_objs as go
+from plotly.subplots import make_subplots
+import plotly.express as px
+import statsmodels.api as sm
 
 def load_or_create_topic_strengths(filename, num_topics):
     if os.path.exists(filename):
@@ -15,7 +21,7 @@ def load_or_create_topic_strengths(filename, num_topics):
             return pickle.load(file)
     else:
         # Generate data
-        weekly_topic_strengths_data = charts_NLP.main(show_graph=True, num_topics=num_topics)
+        weekly_topic_strengths_data = charts_NLP_tristan_filter.main(show_graph=True, num_topics=num_topics)
         # Extract and save only the necessary data from weekly_topic_strengths
         data_to_save = {week: {topic: strength for topic, strength in topics.items()} 
                         for week, topics in weekly_topic_strengths_data.items()}
@@ -27,107 +33,116 @@ def get_week_year(date):
     return f"{date.isocalendar()[0]}-W{date.isocalendar()[1]}"
 
 def main():
-    num_topics = 5
-    weekly_topic_strengths = load_or_create_topic_strengths('weekly_topic_strengths.pkl', num_topics)
+    for location in ["Chicago","LA"]:
+        num_topics = 10
+        weekly_topic_strengths = load_or_create_topic_strengths('weekly_topic_strengths.pkl', num_topics)
 
-    # Load and preprocess weather data
-    weather_df = pd.read_csv("LA weather.csv")
-    weather_df['DATE'] = pd.to_datetime(weather_df['DATE'], format='%d/%m/%Y')
-    weather_df.set_index('DATE', inplace=True)
+        # Load and preprocess weather data
+        weather_df = pd.read_csv(location+" Weather.csv")
+        if location == "LA":
+            weather_df['DATE'] = pd.to_datetime(weather_df['DATE'], format='%d/%m/%Y') #LA
+        elif location == "Chicago":
+            weather_df['DATE'] = pd.to_datetime(weather_df['DATE'], format='%Y-%m-%d') #CHICAGO
+        weather_df.set_index('DATE', inplace=True)
 
-    # Select only numeric columns relevant to the analysis
-    numeric_columns = ['PRCP', 'SNOW', 'TMAX', 'TMIN']
-    weather_numeric = weather_df[numeric_columns]
-    weekly_weather = weather_numeric.groupby(pd.Grouper(freq='W')).mean()
+        # Select only numeric columns relevant to the analysis
+        numeric_columns = ['PRCP', 'SNOW', 'TMAX', 'TMIN']
+        weather_numeric = weather_df[numeric_columns]
+        weekly_weather = weather_numeric.groupby(pd.Grouper(freq='W')).mean()
+        weekly_weather_for_autocorr = weekly_weather.copy()
+        weekly_weather_for_autocorr.fillna(0, inplace=True)
 
-    # Normalize weekly_topic_strengths keys to week-year format
-    normalized_topic_strengths = {get_week_year(pd.Timestamp(week)): strengths
-                                  for week, strengths in weekly_topic_strengths.items()}
+        # Normalize weekly_topic_strengths keys to week-year format
+        normalized_topic_strengths = {get_week_year(pd.Timestamp(week)): strengths
+                                    for week, strengths in weekly_topic_strengths.items()}
 
-    # Aligning topic strengths with weather data
-    topic_strengths_aligned = defaultdict(list)
-    for week in weekly_weather.index:
-        week_year = get_week_year(week)
-        for topic in range(num_topics):
-            if week_year in normalized_topic_strengths:
-                strength = normalized_topic_strengths[week_year].get(topic, 0)
-            else:
-                strength = 0
-            topic_strengths_aligned[topic].append(strength)
+        # Aligning topic strengths with weather data
+        topic_strengths_aligned = defaultdict(list)
+        for week in weekly_weather.index:
+            week_year = get_week_year(week)
+            for topic in range(num_topics):
+                if week_year in normalized_topic_strengths:
+                    strength = normalized_topic_strengths[week_year].get(topic, 0)
+                else:
+                    strength = 0
+                topic_strengths_aligned[topic].append(strength)
 
-    # STFT analysis and autocorrelation
-    window_size = 52*10  # Approx a year
-    autocorrelation_results = defaultdict(list)
+        # STFT analysis and autocorrelation
+        window_size = 52*10  # Approx a year
+        autocorrelation_results = defaultdict(list)
 
-    for topic, strengths in topic_strengths_aligned.items():
-        # Filling NaNs with zeros
-        strengths_filled = np.nan_to_num(strengths)
+        for topic, strengths in topic_strengths_aligned.items():
+            # Filling NaNs with zeros
+            strengths_filled = np.nan_to_num(strengths)
+            f, t, Zxx = stft(strengths_filled, window='hamming', nperseg=window_size)
+            #print(f"STFT Output Shape for Topic {topic}: {Zxx.shape}, Time Length: {len(t)}")
+            autocorr = [np.correlate(Zxx[:,i], weekly_weather_for_autocorr['TMAX'], mode='same') for i in range(len(t))]
+            autocorr_sum = [np.sum(np.abs(a)) for a in autocorr]
+            autocorrelation_results[topic] = autocorr_sum
+            #print(f"Autocorrelation data for topic {topic}:", autocorr_sum)
 
-        f, t, Zxx = stft(strengths_filled, window='hamming', nperseg=window_size)
-        print(f"STFT Output Shape for Topic {topic}: {Zxx.shape}, Time Length: {len(t)}")
+        weekly_topic_strengths_aggregated = defaultdict(lambda: np.zeros(53))
+        for date, strengths in weekly_topic_strengths.items():
+            week_of_year = pd.Timestamp(date).isocalendar()[1]
+            for topic in range(num_topics):
+                weekly_topic_strengths_aggregated[topic][week_of_year - 1] += strengths.get(topic, 0)
 
-        autocorr = [np.correlate(Zxx[:,i], weekly_weather['TMAX'], mode='same') for i in range(len(t))]
-        autocorr_sum = [np.sum(np.abs(a)) for a in autocorr]
-        autocorrelation_results[topic] = autocorr_sum
+        fig = make_subplots(rows=3, cols=4, specs=[[{}, {}, {}, {}], [{}, {}, {}, {}], [{}, {}, {}, {}]],
+                            subplot_titles=("Topic Strength Over Time", "Autocorrelation of Topic Strengths with Max Temperature", "Smoothed NLP Strengths by Week of the Year", "NLP Strengths by Week of the Year", "Precipitation vs Topic Strength", "Max Temperature vs Topic Strength", "Snow vs Topic Strength", "Min Temperature vs Topic Strength", "LOESS: Precipitation vs Topic Strength", "LOESS: Max Temperature vs Topic Strength", "LOESS: Snow vs Topic Strength", "LOESS: Min Temperature vs Topic Strength"))
 
-        print(f"Autocorrelation data for topic {topic}:", autocorr_sum)
+        # Autocorrelation of Topic Strengths with Max Temperature on the first row
+        for topic, autocorr in autocorrelation_results.items():
+            fig.add_trace(go.Scattergl(x=weekly_weather.index, y=autocorr, mode='lines', name=f'Topic {topic + 1} Autocorrelation'), row=1, col=2)
 
-    # Plotting the results with corrected time axis
-    plt.figure(figsize=(15, 10))
+        # Initialize a dictionary to hold time series data for each topic
+        topic_time_series = {topic: [] for topic in range(num_topics)}
+        dates = sorted(weekly_topic_strengths.keys())
+        # Aggregate data for each topic
+        for date in dates:
+            for topic in range(num_topics):
+                strength = weekly_topic_strengths[date].get(topic, 0)
+                topic_time_series[topic].append((date, strength))
+        # Plot each topic's time series data
+        for topic, data in topic_time_series.items():
+            dates, strengths = zip(*data)  # Unpack the tuples into two lists
+            fig.add_trace(go.Scattergl(x=dates, y=strengths, mode='lines', name=f'Topic {topic} Strength Over Time'), row=1, col=1)
 
-    # Convert weekly_weather index to a list for mapping
-    date_list = weekly_weather.index.to_list()
+        # Ensure "NLP Strengths by Week of the Year" plots aggregated data correctly
+        for topic, strengths in weekly_topic_strengths_aggregated.items():
+            fig.add_trace(go.Scattergl(x=np.arange(1, 54), y=strengths, mode='lines', name=f'Topic {topic + 1} NLP Strengths by Week'), row=1, col=4)
 
-    # Number of STFT time frames per original data point
-    frames_per_week = len(t) / len(date_list)
+        # Smoothed NLP Strengths by Week of the Year, third graph on the first row
+        for topic, strengths in weekly_topic_strengths_aggregated.items():
+            smoothed_strengths = gaussian_filter(strengths, sigma=2)
+            fig.add_trace(go.Scattergl(x=np.arange(1, 54), y=smoothed_strengths, mode='lines', name=f'Topic {topic + 1} Smoothed'), row=1, col=3)
 
-    for topic, autocorr in autocorrelation_results.items():
-        if len(autocorr) == len(t):  # Ensure lengths match
-            # Map STFT time frames to dates
-            mapped_dates = [date_list[int(i // frames_per_week)] for i in range(len(t))]
-            plt.plot(mapped_dates, autocorr, label=f'Topic {topic + 1}')
+        # Scatter graphs and fitted lines, maintaining the color consistency
+        topic_colors = px.colors.qualitative.Plotly
+        for i, feature in enumerate(['PRCP', 'TMAX', 'SNOW', 'TMIN']):
+            for topic in range(num_topics):
+                color = topic_colors[topic % len(px.colors.qualitative.Plotly)]
+                x = weekly_weather[feature].values
+                y = np.array(topic_strengths_aligned[topic])
+                fig.add_trace(go.Scattergl(x=x, y=y, mode='markers', marker=dict(color=color, opacity=0.25), name=f'Topic {topic+1} vs {feature}'), row=2, col=i+1)
+                # Filter out NaN values which can cause errors in LOESS
+                valid_indices = ~np.isnan(x) & ~np.isnan(y)
+                x_filtered, y_filtered = x[valid_indices], y[valid_indices]
+                # Apply LOESS smoothing
+                lowess = sm.nonparametric.lowess(y_filtered, x_filtered, frac=0.25)
+                # lowess result is a two-column array, first column is x, second column is y
+                x_lowess, y_lowess = lowess[:, 0], lowess[:, 1]
+                fig.add_trace(go.Scattergl(x=x_lowess, y=y_lowess, mode='lines', line=dict(color=color), name=f'LOESS Fit Topic {topic+1}'), row=3, col=i+1)
 
-    plt.title("Autocorrelation of Topic Strengths with Max Temperature Over Time")
-    plt.xlabel("Time")
-    plt.ylabel("Autocorrelation Strength")
-    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
-    plt.gca().xaxis.set_major_locator(mdates.YearLocator())
-    plt.gcf().autofmt_xdate()  # Rotate date labels
-    plt.legend()
-    plt.show()
+        # Update axes and layout
+        fig.update_xaxes(title_text="Date", row=1, col=1)
+        fig.update_xaxes(title_text="Week of the Year", row=1, col=3)
+        fig.update_xaxes(title_text="Precipitation (in)", row=2, col=1)
+        fig.update_xaxes(title_text="Max Temperature (°F)", row=2, col=2)
+        fig.update_xaxes(title_text="Snow (in)", row=2, col=3)
+        fig.update_xaxes(title_text="Min Temperature (°F)", row=2, col=4)
+        fig.update_layout(height=1800, title_text=f"Exploratory Analysis of Weather Trends and NLP of Music Charts - {location}")
+        fig.show()
 
-    ####aggregated day of year plot
-
-
-    # New code for plotting NLP strengths against the day of the year
-    daily_topic_strengths = defaultdict(lambda: np.zeros(366))  # Initialize array for each day of the year
-    for date, strengths in weekly_topic_strengths.items():
-        day_of_year = date.timetuple().tm_yday  # Get day of the year
-        for topic in range(num_topics):
-            daily_topic_strengths[topic][day_of_year - 1] += strengths.get(topic, 0)
-
-    # Line graph for NLP strengths
-    plt.figure(figsize=(15, 10))
-    for topic, strengths in daily_topic_strengths.items():
-        plt.plot(range(1, 367), strengths, label=f'Topic {topic + 1}')
-
-    plt.title("NLP Strengths by Day of the Year")
-    plt.xlabel("Day of the Year")
-    plt.ylabel("Topic Strength")
-    plt.legend()
-    plt.show()
-
-    # Smoothed line graph using Gaussian filter
-    plt.figure(figsize=(15, 10))
-    for topic, strengths in daily_topic_strengths.items():
-        smoothed_strengths = gaussian_filter(strengths, sigma=5)  # Apply Gaussian filter for smoothing
-        plt.plot(range(1, 367), smoothed_strengths, label=f'Topic {topic + 1}')
-
-    plt.title("Smoothed NLP Strengths by Day of the Year (Gaussian Filter)")
-    plt.xlabel("Day of the Year")
-    plt.ylabel("Smoothed Topic Strength")
-    plt.legend()
-    plt.show()
 
 if __name__ == '__main__':
     main()

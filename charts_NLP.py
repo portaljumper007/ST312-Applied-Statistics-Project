@@ -8,6 +8,7 @@ from collections import defaultdict
 from tqdm import tqdm  # Import tqdm
 from nltk.sentiment import SentimentIntensityAnalyzer
 
+nltk.download('vader_lexicon')
 sid = SentimentIntensityAnalyzer()
 def filter_by_sentiment_intensity(tokens):
     return [word for word in tokens if abs(sid.polarity_scores(word)['compound']) > 0.6]

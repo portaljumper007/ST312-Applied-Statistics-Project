@@ -25,7 +25,7 @@ def augment_corpus_with_custom_keywords(processed_texts, keyword, boost_factor=1
     return augmented_texts
 
 
-def main(show_graph=True, num_topics=5, specific_year=None):
+def main(show_graph=True, num_topics=10, specific_year=None):
     print("Loading dataset...")
     music_df = pd.read_csv("Music Charts.csv")
     music_df['WeekID'] = pd.to_datetime(music_df['WeekID'])
@@ -68,7 +68,7 @@ def main(show_graph=True, num_topics=5, specific_year=None):
     doc_term_matrix = [dictionary.doc2bow(doc) for doc in music_df['text']]
 
     print("Creating LDA model...")
-    num_topics = 5
+    num_topics = 10
     num_threads = 12
     lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=num_topics, id2word=dictionary, passes=5,
                                            workers=num_threads)  # Using LdaMulticore
@@ -91,7 +91,7 @@ def main(show_graph=True, num_topics=5, specific_year=None):
                                   week.year == specific_year}
     if show_graph:
         # Extracting topic descriptions
-        topic_descriptions = {i: ' '.join([word for word, prob in lda.show_topic(i, topn=5) if prob > 0.01]) for i in
+        topic_descriptions = {i: ' '.join([word for word, prob in lda.show_topic(i, topn=10) if prob > 0.01]) for i in
                               range(num_topics)}
 
         print("Plotting topic strengths over time...")
@@ -116,4 +116,4 @@ def main(show_graph=True, num_topics=5, specific_year=None):
 
 
 if __name__ == '__main__':  # Check we're in the main thread for multiprocessing inside gensim multicore LDA
-    main(show_graph=True, num_topics=5, specific_year=2019)
+    main(show_graph=True, num_topics=10, specific_year=None)

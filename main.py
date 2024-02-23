@@ -9,11 +9,19 @@ import pickle
 import charts_NLP_tristan_filter
 import matplotlib.dates as mdates
 import pandas as pd
-import numpy as np
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 import statsmodels.api as sm
+
+from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.model_selection import train_test_split
+import plotly.graph_objs as go
+from plotly.subplots import make_subplots
+import numpy as np
+import plotly.figure_factory as ff
+
 
 def load_or_create_topic_strengths(filename, num_topics):
     if os.path.exists(filename):
@@ -143,6 +151,65 @@ def main():
         fig.update_layout(height=1800, title_text=f"Exploratory Analysis of Weather Trends and NLP of Music Charts - {location}")
         fig.show()
 
+
+
+
+        
+        weather_features = weekly_weather.copy().dropna()
+
+        # Ensure topic_strengths is aligned with weather_features
+        aligned_topic_strengths = {}
+        for topic in range(num_topics):
+            topic_strengths = np.array(topic_strengths_aligned[topic])
+            # Ensure only to include lengths that match the weather_features after dropping NA
+            aligned_topic_strengths[topic] = topic_strengths[:len(weather_features)]
+        
+
+        # Prepare a new Plotly figure with 2 columns for linear regression and Decision Tree results
+        subplot_titles = []
+        for i in range(num_topics):
+            subplot_titles.append(f'Topic {i+1} Linear Regression')
+            subplot_titles.append(f'Topic {i+1} Decision Tree')
+        regression_fig = make_subplots(rows=num_topics, cols=2, subplot_titles=subplot_titles,
+                                    horizontal_spacing=0.02, vertical_spacing=0.05)
+
+        for topic in range(num_topics):
+            topic_strengths = aligned_topic_strengths[topic]
+            
+            # Generate interaction terms
+            weather_features_interaction = weather_features.copy()
+            for col1 in weather_features_interaction.columns:
+                for col2 in weather_features_interaction.columns:
+                    if col1 != col2:
+                        weather_features_interaction[f'{col1}*{col2}'] = weather_features_interaction[col1] * weather_features_interaction[col2]
+
+            X = weather_features_interaction
+            y = topic_strengths
+
+            # Split data into training and testing sets
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+            # Linear Regression Model
+            lr_model = LinearRegression()
+            lr_model.fit(X_train, y_train)
+            y_pred_lr = lr_model.predict(X_test)
+
+            # Decision Tree Regressor
+            tree_model = DecisionTreeRegressor(max_depth=5, min_samples_split=5, random_state=42)
+            tree_model.fit(X_train, y_train)
+            y_pred_tree = tree_model.predict(X_test)
+
+            # Linear Regression Predictions Plot
+            regression_fig.add_trace(go.Scatter(x=y_test, y=y_pred_lr, mode='markers', name='LR Predictions', marker=dict(color='LightSkyBlue', opacity=0.6)), row=topic+1, col=1)
+            # Decision Tree Predictions Plot
+            regression_fig.add_trace(go.Scatter(x=y_test, y=y_pred_tree, mode='markers', name='Tree Predictions', marker=dict(color='MediumPurple', opacity=0.6)), row=topic+1, col=2)
+
+            regression_fig.add_trace(go.Scatter(x=np.unique(y_test), y=np.poly1d(np.polyfit(y_test, y_pred_lr, 1))(np.unique(y_test)), mode='lines', name='LR Best Fit', line=dict(color='Red')), row=topic+1, col=1)
+            regression_fig.add_trace(go.Scatter(x=np.unique(y_test), y=np.poly1d(np.polyfit(y_test, y_pred_tree, 1))(np.unique(y_test)), mode='lines', name='Tree Best Fit', line=dict(color='Red')), row=topic+1, col=2)
+
+        # Update layout
+        regression_fig.update_layout(height=5000, width=1200, title_text="Topic Strengths vs Weather Features: Linear Regression & Decision Tree Predictions")
+        regression_fig.show()
 
 if __name__ == '__main__':
     main()

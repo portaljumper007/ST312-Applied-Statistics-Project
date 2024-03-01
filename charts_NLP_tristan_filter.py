@@ -89,6 +89,39 @@ def main(show_graph=True, num_topics=10, specific_year=None):
         # Filter out the data for the specific year
         weekly_topic_strengths = {week: topics for week, topics in weekly_topic_strengths.items() if
                                   week.year == specific_year}
+
+
+
+
+
+
+
+    # standardisation
+    topic_means = {}
+    topic_stds = {}
+    for topic in range(num_topics):
+        all_strengths = []
+        for week in weekly_topic_strengths.keys():
+            all_strengths.append(weekly_topic_strengths[week].get(topic, 0))
+        topic_means[topic] = sum(all_strengths) / len(all_strengths)
+        topic_stds[topic] = (sum((x - topic_means[topic]) ** 2 for x in all_strengths) / len(all_strengths)) ** 0.5
+
+    for week in weekly_topic_strengths.keys():
+        for topic in range(num_topics):
+            if topic in weekly_topic_strengths[week]:
+                weekly_topic_strengths[week][topic] = (weekly_topic_strengths[week][topic] - topic_means[topic]) / \
+                                                      topic_stds[topic]
+            else:
+                weekly_topic_strengths[week][topic] = (0 - topic_means[topic]) / topic_stds[topic]
+
+
+
+
+
+
+
+
+
     if show_graph:
         # Extracting topic descriptions
         topic_descriptions = {i: ' '.join([word for word, prob in lda.show_topic(i, topn=10) if prob > 0.01]) for i in

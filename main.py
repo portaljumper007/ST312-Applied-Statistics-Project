@@ -1,12 +1,10 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from collections import defaultdict
 from scipy.signal import stft
 from scipy.ndimage import gaussian_filter
 import os
 import pickle
-import charts_NLP_tristan_filter
 import matplotlib.dates as mdates
 import pandas as pd
 import plotly.graph_objs as go
@@ -20,8 +18,11 @@ from sklearn.model_selection import train_test_split
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import numpy as np
-import plotly.figure_factory as ff
+from statsmodels.tsa.seasonal import STL
+from scipy.signal import correlate
+from sklearn.preprocessing import StandardScaler
 
+import charts_NLP_tristan_filter
 
 def load_or_create_topic_strengths(filename, num_topics):
     if os.path.exists(filename):
@@ -210,6 +211,52 @@ def main():
         # Update layout
         regression_fig.update_layout(height=5000, width=1200, title_text="Topic Strengths vs Weather Features: Linear Regression & Decision Tree Predictions")
         regression_fig.show()
+
+
+
+
+
+
+        scaler = StandardScaler()
+        standardized_weather = pd.DataFrame(scaler.fit_transform(weekly_weather), columns=weekly_weather.columns, index=weekly_weather.index)
+
+        # Time series decomposition and cross-correlation analysis
+        subplot_titles = []
+        for i in range(num_topics):
+            subplot_titles.extend([f"Topic {i+1} Decomposition", f"Topic {i+1} Cross-Correlation"])
+        decomposition_and_cross_fig = make_subplots(rows=num_topics, cols=2, subplot_titles=subplot_titles, vertical_spacing=0.02, horizontal_spacing=0.06)
+
+        for topic in range(num_topics):
+            topic_strengths = aligned_topic_strengths[topic]
+            
+            # Time series decomposition using STL
+            stl_result = STL(topic_strengths, period=52).fit()
+            trend, seasonal, residual = stl_result.trend, stl_result.seasonal, stl_result.resid
+            
+            decomposition_and_cross_fig.add_trace(go.Scatter(x=weekly_weather.index, y=topic_strengths, mode='lines', name=f'Topic {topic+1} Strength'), row=topic+1, col=1)
+            decomposition_and_cross_fig.add_trace(go.Scatter(x=weekly_weather.index, y=trend, mode='lines', name=f'Trend', line=dict(color='red')), row=topic+1, col=1)
+            decomposition_and_cross_fig.add_trace(go.Scatter(x=weekly_weather.index, y=seasonal, mode='lines', name=f'Seasonal', line=dict(color='green')), row=topic+1, col=1)
+            decomposition_and_cross_fig.add_trace(go.Scatter(x=weekly_weather.index, y=residual, mode='lines', name=f'Residual', line=dict(color='blue')), row=topic+1, col=1)
+            
+            decomposition_and_cross_fig.update_xaxes(title_text="Date", row=topic+1, col=1)
+            decomposition_and_cross_fig.update_yaxes(title_text="Topic Strength", row=topic+1, col=1)
+            
+            # Cross-correlation analysis
+            max_lag = 26  # Half a year
+            for feature in ['PRCP', 'TMAX', 'SNOW', 'TMIN']:
+                weather_feature = np.nan_to_num(standardized_weather[feature].values)
+                cross_corr = correlate(topic_strengths, weather_feature, mode='same')
+                lags = np.arange(-max_lag, max_lag + 1)
+                cross_corr = cross_corr[len(cross_corr) // 2 - max_lag : len(cross_corr) // 2 + max_lag + 1]
+                
+                decomposition_and_cross_fig.add_trace(go.Scatter(x=lags, y=cross_corr, mode='lines', name=f'{feature} Cross-Correlation'), row=topic+1, col=2)
+            
+            decomposition_and_cross_fig.update_xaxes(title_text="Lag (Weeks)", row=topic+1, col=2)
+            decomposition_and_cross_fig.update_yaxes(title_text="Correlation Coefficient", row=topic+1, col=2)
+
+        # Update layout
+        decomposition_and_cross_fig.update_layout(height=5000, width=1800, title_text=f"Time Series Decomposition and Cross-Correlation Analysis - {location}")
+        decomposition_and_cross_fig.show()
 
 if __name__ == '__main__':
     main()

@@ -208,7 +208,6 @@ def main():
             regression_fig.add_trace(go.Scatter(x=np.unique(y_test), y=np.poly1d(np.polyfit(y_test, y_pred_lr, 1))(np.unique(y_test)), mode='lines', name='LR Best Fit', line=dict(color='Red')), row=topic+1, col=1)
             regression_fig.add_trace(go.Scatter(x=np.unique(y_test), y=np.poly1d(np.polyfit(y_test, y_pred_tree, 1))(np.unique(y_test)), mode='lines', name='Tree Best Fit', line=dict(color='Red')), row=topic+1, col=2)
 
-        # Update layout
         regression_fig.update_layout(height=5000, width=1200, title_text="Topic Strengths vs Weather Features: Linear Regression & Decision Tree Predictions")
         regression_fig.show()
 
@@ -254,7 +253,6 @@ def main():
             decomposition_and_cross_fig.update_xaxes(title_text="Lag (Weeks)", row=topic+1, col=2)
             decomposition_and_cross_fig.update_yaxes(title_text="Correlation Coefficient", row=topic+1, col=2)
 
-        # Update layout
         decomposition_and_cross_fig.update_layout(height=5000, width=1800, title_text=f"Time Series Decomposition and Cross-Correlation Analysis - {location}")
         decomposition_and_cross_fig.show()
 

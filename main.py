@@ -42,10 +42,40 @@ def get_week_year(date):
     return f"{date.isocalendar()[0]}-W{date.isocalendar()[1]}"
 
 def main():
-    for location in ["Chicago","LA"]:
-        num_topics = 10
-        weekly_topic_strengths = load_or_create_topic_strengths('weekly_topic_strengths.pkl', num_topics)
+    num_topics = 10
+    weekly_topic_strengths = load_or_create_topic_strengths('weekly_topic_strengths.pkl', num_topics)
 
+
+
+
+    # INFO ABOUT TOPICS (eg constitutent words and their strengths)
+    with open('topic_info.pkl', 'rb') as file:
+        topic_info = pickle.load(file) # Load topic information
+
+    print("Top words and their probabilities for each topic:")
+    for topic, top_words in topic_info.items():
+        print(f"Topic {topic+1}:")
+        for word, prob in top_words:
+            print(f"{word}: {prob:.4f}")
+        print()
+
+    topic_words_fig = make_subplots(rows=num_topics, cols=1, subplot_titles=[f"Topic {i+1}" for i in range(num_topics)]) # Create a new figure for displaying top words for each topic
+    for topic in range(num_topics):
+        top_words = topic_info[topic]
+        words, probs = zip(*top_words)
+        topic_words_fig.add_trace(go.Bar(x=probs, y=words, orientation='h', name=f"Topic {topic+1}"), row=topic+1, col=1)
+        topic_words_fig.update_xaxes(title_text="Probability", row=topic+1, col=1)
+        topic_words_fig.update_yaxes(title_text="Words", row=topic+1, col=1)
+    topic_words_fig.update_layout(title=f"Top Words for Each Topic",
+                                height=300*num_topics, width=800,
+                                showlegend=False)
+    topic_words_fig.show()
+
+
+
+
+
+    for location in ["Chicago","LA"]:
         # Load and preprocess weather data
         weather_df = pd.read_csv(location+" Weather.csv")
         if location == "LA":
@@ -255,6 +285,108 @@ def main():
 
         decomposition_and_cross_fig.update_layout(height=5000, width=1800, title_text=f"Time Series Decomposition and Cross-Correlation Analysis - {location}")
         decomposition_and_cross_fig.show()
+
+
+
+
+        # REAL WORLD FORECASTING SIMULATION
+        from sklearn.ensemble import GradientBoostingRegressor
+        from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+        from itertools import chain
+
+        def forecast_topic_strengths(topic_strengths, weather_data, lag_weeks=4):
+            X, y = [], []
+            for i in range(lag_weeks, len(topic_strengths)):
+                topic_lags = topic_strengths[i-lag_weeks:i]
+                weather_lags = weather_data.iloc[i-lag_weeks:i].values.flatten()
+                X.append(np.concatenate((topic_lags, weather_lags)))
+                y.append(topic_strengths[i])
+            return np.array(X), np.array(y)
+
+        lag_weeks = 4
+        subplot_titles = [[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Impact"] for i in range(num_topics)]
+        forecasting_fig = make_subplots(rows=num_topics, cols=3, subplot_titles=list(chain.from_iterable(subplot_titles)))
+        mse_scores, mae_scores, r2_scores = [], [], []
+
+        for topic in range(num_topics):
+            print(f"Processing Topic {topic+1}/{num_topics}")
+            topic_strengths = aligned_topic_strengths[topic]
+            X, y = forecast_topic_strengths(topic_strengths, weekly_weather, lag_weeks)
+            
+            # Replace missing values with the mean of the corresponding feature
+            X = np.where(np.isnan(X), np.ma.array(X, mask=np.isnan(X)).mean(axis=0), X)
+            
+            # Define the training and testing indices
+            train_size = int(0.8 * len(X))
+            X_train, y_train = X[:train_size], y[:train_size]
+            X_test, y_test = X[train_size:], y[train_size:]
+            
+            # Train the Gradient Boosting model
+            gb_model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42)
+            gb_model.fit(X_train, y_train)
+            
+            # Make predictions on the testing set
+            y_pred = gb_model.predict(X_test)
+            
+            # Calculate evaluation metrics
+            mse = mean_squared_error(y_test, y_pred)
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            mse_scores.append(mse)
+            mae_scores.append(mae)
+            r2_scores.append(r2)
+            
+            # Add traces to the forecasting figure
+            forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_test, mode='lines', name=f'Actual Topic {topic+1}'), row=topic+1, col=1)
+            forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_pred, mode='lines', name=f'Predicted Topic {topic+1}'), row=topic+1, col=1)
+            
+            # Add predicted vs actual value graph with a diagonal line
+            forecasting_fig.add_trace(go.Scatter(x=y_test, y=y_pred, mode='markers', name=f'Topic {topic+1}'), row=topic+1, col=2)
+            forecasting_fig.add_shape(type='line', x0=y_test.min(), y0=y_test.min(), x1=y_test.max(), y1=y_test.max(), line=dict(color='black', dash='dash'), row=topic+1, col=2)
+            
+            # Add performance metrics as text
+            forecasting_fig.add_annotation(x=0.05, y=0.95, xref=f'x{3*topic+2} domain', yref=f'y{3*topic+2} domain',
+                                        text=f"MSE: {mse:.4f}<br>MAE: {mae:.4f}<br>R-squared: {r2:.4f}",
+                                        showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
+            
+            # Weather Impact Plot
+            weather_vars = ['PRCP', 'TMAX', 'SNOW', 'TMIN']
+            weather_data_test = weekly_weather.iloc[train_size+lag_weeks:]
+            base_weather = weather_data_test.median()
+            
+            for var in weather_vars:
+                weather_range = np.linspace(weather_data_test[var].min(), weather_data_test[var].max(), 100)
+                predictions = []
+                for val in weather_range:
+                    weather_input = base_weather.copy()
+                    weather_input[var] = val
+                    X_input = np.concatenate((topic_strengths[-lag_weeks:], np.tile(weather_input.values, lag_weeks)))
+                    X_input = X_input.reshape(1, -1)
+                    prediction = gb_model.predict(X_input)
+                    predictions.append(prediction[0])
+                forecasting_fig.add_trace(go.Scatter(x=weather_range, y=predictions, mode='lines', name=var), row=topic+1, col=3)
+            
+            forecasting_fig.update_xaxes(title_text="Weather Variable", row=topic+1, col=3)
+            forecasting_fig.update_yaxes(title_text="Predicted Topic Strength", row=topic+1, col=3)
+            
+            print(f"Topic {topic+1} - MSE: {mse:.4f}, MAE: {mae:.4f}, R-squared: {r2:.4f}")
+        
+        mse_avg = np.mean(mse_scores)
+        mae_avg = np.mean(mae_scores)
+        rmse_avg = np.sqrt(mse_avg)
+        r2_avg = np.mean(r2_scores)
+
+        print(f"Average Performance Metrics:")
+        print(f"Mean Squared Error (MSE): {mse_avg:.4f}")
+        print(f"Mean Absolute Error (MAE): {mae_avg:.4f}")
+        print(f"Root Mean Squared Error (RMSE): {rmse_avg:.4f}")
+        print(f"R-squared (R^2): {r2_avg:.4f}")
+
+        forecasting_fig.update_layout(title=f"Topic Strength Forecasting Performance - {location} (Testing Period)",
+                                    height=600*num_topics, width=1800,
+                                    showlegend=False)
+
+        forecasting_fig.show()
 
 if __name__ == '__main__':
     main()

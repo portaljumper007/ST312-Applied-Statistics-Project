@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from tqdm import tqdm  # Import tqdm
 from nltk.sentiment import SentimentIntensityAnalyzer
+import pickle
 
 sid = SentimentIntensityAnalyzer()
 
@@ -72,6 +73,15 @@ def main(show_graph=True, num_topics=10, specific_year=None):
     num_threads = 12
     lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=num_topics, id2word=dictionary, passes=5,
                                            workers=num_threads)  # Using LdaMulticore
+    
+    from gensim.models import CoherenceModel
+    # Calculate perplexity score
+    perplexity = lda.log_perplexity(doc_term_matrix)
+    print(f"Perplexity: {perplexity:.4f}")
+    # Calculate coherence score
+    coherence_model = CoherenceModel(model=lda, texts=processed_texts, dictionary=dictionary, coherence='c_v')
+    coherence_score = coherence_model.get_coherence()
+    print(f"Coherence Score: {coherence_score:.4f}")
 
     print("Analyzing topics across weeks...")
     weekly_topic_strengths = defaultdict(lambda: defaultdict(int))
@@ -107,10 +117,13 @@ def main(show_graph=True, num_topics=10, specific_year=None):
 
 
 
+    # Extracting topic descriptions and saving top words and probabilities
+    topic_info = {i: lda.show_topic(i, topn=10) for i in range(num_topics)}
+    with open('topic_info.pkl', 'wb') as file:
+        pickle.dump(topic_info, file)
+
     if show_graph:
-        # Extracting topic descriptions
-        topic_descriptions = {i: ' '.join([word for word, prob in lda.show_topic(i, topn=10) if prob > 0.01]) for i in
-                              range(num_topics)}
+        topic_descriptions = {i: ' '.join([word for word, prob in topic_info[i] if prob > 0.01]) for i in range(num_topics)}
 
         print("Plotting topic strengths over time...")
         plt.figure(figsize=(15, 10))

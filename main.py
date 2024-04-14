@@ -15,24 +15,19 @@ import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.model_selection import train_test_split
-import plotly.graph_objs as go
-from plotly.subplots import make_subplots
-import numpy as np
 from statsmodels.tsa.seasonal import STL
 from scipy.signal import correlate
 from sklearn.preprocessing import StandardScaler
 
-import charts_NLP_tristan_filter
+import charts_NLP_v2
 
 def load_or_create_topic_strengths(filename, num_topics):
-    if os.path.exists(filename):
+    if os.path.exists('topic_info.pkl'):
         with open(filename, 'rb') as file:
             return pickle.load(file)
     else:
-        # Generate data
-        weekly_topic_strengths_data = charts_NLP_tristan_filter.main(show_graph=True, num_topics=num_topics)
-        # Extract and save only the necessary data from weekly_topic_strengths
-        data_to_save = {week: {topic: strength for topic, strength in topics.items()} 
+        weekly_topic_strengths_data = charts_NLP_v2.main(show_graph=True, num_topics=num_topics) # Generate data
+        data_to_save = {week: {topic: strength for topic, strength in topics.items()} # Extract and save only the necessary data from weekly_topic_strengths
                         for week, topics in weekly_topic_strengths_data.items()}
         with open(filename, 'wb') as file:
             pickle.dump(data_to_save, file)
@@ -68,9 +63,24 @@ def main():
         topic_words_fig.update_xaxes(title_text="Probability", row=topic+1, col=1)
         topic_words_fig.update_yaxes(title_text="Words", row=topic+1, col=1)
     topic_words_fig.update_layout(title=f"Top Words for Each Topic",
-                                height=300*num_topics, width=800,
+                                height=200*num_topics, width=800,
                                 showlegend=False)
     topic_words_fig.show()
+
+    #TOPIC STRENGTH MATRIX
+    import plotly.figure_factory as ff
+    z = []
+    annotations = []
+    for topic, top_words in topic_info.items():
+        words, probs = zip(*top_words)
+        z.append(list(probs))
+        annotations.append([f"{word}<br>{prob:.4f}" for word, prob in zip(words, probs)])
+    x = list(range(10))  # x-axis labels (1st, 2nd, ..., 10th)
+    y = [f"Topic {i+1}" for i in range(num_topics)]  # y-axis labels (Topic 1, Topic 2, ...)
+    # Create the annotated heatmap
+    word_strength_matrix = ff.create_annotated_heatmap(z, x=x, y=y, annotation_text=annotations, colorscale='blues', zmid=0)
+    word_strength_matrix.update_layout(title='Top Words and Strengths for Each Topic',height=1200,width=1200,xaxis=dict(tickvals=np.arange(10), ticktext=['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th']),yaxis=dict(tickvals=[i for i in range(num_topics)], ticktext=[f"Topic {i+1}" for i in range(num_topics)]),showlegend=False)
+    word_strength_matrix.show()
 
 
 
@@ -325,7 +335,6 @@ def main():
 
     # Combine weather data from Chicago and LA
     combined_weather = pd.concat([df.add_prefix(f"{location}_") for location, df in zip(["Chicago", "LA"], dfs)], axis=1, join='inner')
-    #combined_weather.set_index('Chicago_DATE', inplace=True)
 
     # Align topic strengths with combined weather data
     combined_topic_strengths_aligned = defaultdict(list)

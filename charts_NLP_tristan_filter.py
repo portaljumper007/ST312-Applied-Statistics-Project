@@ -106,7 +106,7 @@ def main(show_graph=True, num_topics=10, specific_year=None):
 
     for topic in range(num_topics):
         all_strengths = [weekly_topic_strengths[week].get(topic, 0) for week in weekly_topic_strengths.keys()]
-        ranks = stats.rankdata(all_strengths)
+        ranks = stats.rankdata(all_strengths) #rank the strength of each topic out of all its historical strengths to try and normalise it against its historical values
         quantiles = (ranks - 1) / (len(all_strengths) - 1)
         
         for i, week in enumerate(weekly_topic_strengths.keys()):

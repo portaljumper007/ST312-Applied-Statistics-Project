@@ -18,7 +18,7 @@ from plotly.subplots import make_subplots
 sid = SentimentIntensityAnalyzer()
 
 def filter_by_sentiment_intensity(tokens):
-    return [word for word in tokens if abs(sid.polarity_scores(word)['compound']) > 0.2]
+    return [word for word in tokens if abs(sid.polarity_scores(word)['compound']) > 0.025]
 
 def augment_corpus_with_custom_keywords(processed_texts, keyword, boost_factor=100):
     augmented_texts = []
@@ -60,7 +60,7 @@ def load_or_create_data(dictionary_filename, weekly_strengths_filename, lda_mode
             tokens = [word for word in tokens if word not in stop_words]
             tokens = [word for word in tokens if len(word) > 2]
             tokens = [lemmatizer.lemmatize(word) for word in tokens]
-            #tokens = filter_by_sentiment_intensity(tokens)
+            tokens = filter_by_sentiment_intensity(tokens)
             return tokens
 
         print("Preprocessing text...")
@@ -87,7 +87,8 @@ def load_or_create_data(dictionary_filename, weekly_strengths_filename, lda_mode
 
         print("Creating LDA model...")
         num_threads = 12
-        lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=60, id2word=dictionary, passes=6, workers=num_threads, alpha='symmetric', eta='auto')
+        #lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=60, id2word=dictionary, passes=6, workers=num_threads, alpha='symmetric', eta='auto')
+        lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=60, id2word=dictionary, passes=10, workers=num_threads, alpha='asymmetric', eta=0.1)
 
         print("Analyzing topics across weeks...")
         weekly_topic_strengths = defaultdict(make_default_dict)
@@ -123,9 +124,17 @@ def main(show_graph=True, num_topics=10, specific_year=None):
         word_strength = lda.get_topic_terms(topic)  # Get all words for the topic
         for word_id, strength in word_strength:
             topic_words[topic, word_id] = strength
+    
+    from sklearn.decomposition import PCA
+    pca = PCA(n_components=60)  # Choose an appropriate number of components
+    topic_words_reduced = pca.fit_transform(topic_words)
 
-    kmeans = KMeans(n_clusters=num_topics, init='k-means++', n_init=10, max_iter=300, random_state=42)
-    kmeans.fit(topic_words)
+    from sklearn.metrics.pairwise import cosine_distances
+    kmeans = KMeans(n_clusters=num_topics, init='k-means++', n_init=200, max_iter=300, random_state=42)
+    topic_words_cosine_dist = cosine_distances(topic_words_reduced)
+    kmeans.fit(topic_words_cosine_dist)
+
+
     topic_clusters = defaultdict(list)
     for topic, cluster_label in enumerate(kmeans.labels_):
         topic_clusters[cluster_label].append(topic)
@@ -140,11 +149,12 @@ def main(show_graph=True, num_topics=10, specific_year=None):
             topic_words = lda.show_topic(topic, topn=10)
             _, probs = zip(*topic_words)
             weight_distribution = np.std(probs)  # Higher std = more evenly distributed weights
+            gini_impurity = 1 - np.sum(np.array(probs)**2)
             # Calculate variance of topic strengths
             topic_strengths = [weekly_topic_strengths[week].get(topic, 0) for week in weekly_topic_strengths.keys()]
             strength_variance = np.var(topic_strengths)
             # Combine weight distribution and variance scores
-            combined_score = weight_distribution * strength_variance * np.sum(topic_strengths)
+            combined_score = gini_impurity * strength_variance / np.sum(topic_strengths)
             cluster_topic_scores.append((topic, combined_score))
 
         selected_topic = max(cluster_topic_scores, key=lambda x: x[1])[0]

@@ -11,6 +11,7 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 import statsmodels.api as sm
 from scipy.stats import norm
+import scipy
 
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
@@ -89,6 +90,10 @@ def main():
     dfs = []
     mse_scores_all, mae_scores_all, r2_scores_all = [], [], []
     for location in ["Chicago","LA"]:
+        print("@"*(40+len(location)))
+        print("-"*20+str(location)+"-"*20)
+        print("@"*(40+len(location)))
+
         # Load and preprocess weather data
         weather_df = pd.read_csv(location+" Weather.csv")
         if location == "LA":
@@ -125,16 +130,29 @@ def main():
         # STFT analysis and autocorrelation
         window_size = 52*10  # Approx a year
         autocorrelation_results = defaultdict(list)
-
         for topic, strengths in topic_strengths_aligned.items():
-            # Filling NaNs with zeros
-            strengths_filled = np.nan_to_num(strengths)
+            strengths_filled = np.nan_to_num(strengths) # Filling NaNs with zeros
             f, t, Zxx = stft(strengths_filled, window='hamming', nperseg=window_size)
             #print(f"STFT Output Shape for Topic {topic}: {Zxx.shape}, Time Length: {len(t)}")
             autocorr = [np.correlate(Zxx[:,i], weekly_weather_for_autocorr['TMAX'], mode='same') for i in range(len(t))]
             autocorr_sum = [np.sum(np.abs(a)) for a in autocorr]
             autocorrelation_results[topic] = autocorr_sum
             #print(f"Autocorrelation data for topic {topic}:", autocorr_sum)
+        
+        #Correlation Analysis between Weather Variables and Topic Strengths
+        results = []
+        for topic in range(num_topics):
+            topic_strengths = topic_strengths_aligned[topic]
+            for feature in numeric_columns:
+                weather_values = weekly_weather[feature].values
+                strengths_filled = np.nan_to_num(topic_strengths)
+                weather_filled = np.nan_to_num(weather_values)
+                correlation, p_value = scipy.stats.pearsonr(strengths_filled, weather_filled)
+                results.append([topic+1, feature, correlation, p_value])
+        print("\nCorrelation Analysis Results:")
+        columns = ["Topic", "Weather Variable", "Correlation", "p-value"]
+        corr_df = pd.DataFrame(results, columns=columns)
+        print(corr_df.to_string(index=False))
 
         weekly_topic_strengths_aggregated = defaultdict(lambda: np.zeros(53))
         for date, strengths in weekly_topic_strengths.items():
@@ -414,7 +432,7 @@ def main():
             X_test, y_test = X[train_size:], y[train_size:]
 
             # Train the Gradient Boosting model
-            gb_model = GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=5, subsample=0.8, random_state=42)
+            gb_model = GradientBoostingRegressor(n_estimators=150, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
             gb_model.fit(X_train, y_train)
             # Make predictions on the testing set
             y_pred = gb_model.predict(X_test)
@@ -425,13 +443,10 @@ def main():
             X_weather_only = X[:, -len(weather_data.columns)*lag_weeks:]
             X_train_weather, y_train_weather = X_weather_only[:train_size], y[:train_size]
             X_test_weather, y_test_weather = X_weather_only[train_size:], y[train_size:]
-
-            gb_model_weather = GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=5, subsample=0.8, random_state=42)
+            gb_model_weather = GradientBoostingRegressor(n_estimators=150, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
             gb_model_weather.fit(X_train_weather, y_train_weather)
-
             # Make predictions on the testing set using only weather data
             y_pred_weather = gb_model_weather.predict(X_test_weather)
-
             # Calculate evaluation metrics for the weather-only model
             mse_weather = mean_squared_error(y_test_weather, y_pred_weather)
             mae_weather = mean_absolute_error(y_test_weather, y_pred_weather)
@@ -447,41 +462,33 @@ def main():
             r2 = r2_score(y_test, y_pred)
             pcc, _ = pearsonr(y_test, y_pred)
             srcc, _ = spearmanr(y_test, y_pred)
-
             mse_scores.append(mse)
             mae_scores.append(mae)
             r2_scores.append(r2)
             pcc_scores.append(pcc)
             srcc_scores.append(srcc)
-
             print(f"Topic {topic+1} - MSE: {mse:.4f}, MAE: {mae:.4f}, R-squared: {r2:.4f}, PCC: {pcc:.4f}, SRCC: {srcc:.4f}")
 
 
             # Add traces to the forecasting figure
             forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_test, mode='lines', name=f'Actual Topic {topic+1}'), row=topic+1, col=1)
             forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_pred, mode='lines', name=f'Predicted Topic {topic+1}'), row=topic+1, col=1)
-
             # Add predicted vs actual value graph with a diagonal line
             forecasting_fig.add_trace(go.Scatter(x=y_test, y=y_pred, mode='markers', name=f'Topic {topic+1}'), row=topic+1, col=2)
             forecasting_fig.add_shape(type='line', x0=y_test.min(), y0=y_test.min(), x1=y_test.max(), y1=y_test.max(), line=dict(color='black', dash='dash'), row=topic+1, col=2)
-
             # Add traces for the weather-only model
             forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_test_weather, mode='lines', name=f'Actual Topic {topic+1} (Weather Only)'), row=topic+1, col=4)
             forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_pred_weather, mode='lines', name=f'Predicted Topic {topic+1} (Weather Only)'), row=topic+1, col=4)
-
             forecasting_fig.add_trace(go.Scatter(x=y_test_weather, y=y_pred_weather, mode='markers', name=f'Topic {topic+1} (Weather Only)'), row=topic+1, col=5)
             forecasting_fig.add_shape(type='line', x0=y_test_weather.min(), y0=y_test_weather.min(), x1=y_test_weather.max(), y1=y_test_weather.max(), line=dict(color='black', dash='dash'), row=topic+1, col=5)
-
             # Add performance metrics as text for the weather-only model
             forecasting_fig.add_annotation(x=0.05, y=0.95, xref=f'x{5*topic+5} domain', yref=f'y{5*topic+5} domain',
                                         text=f"MSE: {mse_weather:.4f}<br>MAE: {mae_weather:.4f}<br>R-squared: {r2_weather:.4f}<br>PCC: {pcc_weather:.4f}<br>SRCC: {srcc_weather:.4f}",
                                         showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
-
             # Add performance metrics as text
             forecasting_fig.add_annotation(x=0.05, y=0.95, xref=f'x{5*topic+2} domain', yref=f'y{5*topic+2} domain',
                                         text=f"MSE: {mse:.4f}<br>MAE: {mae:.4f}<br>R-squared: {r2:.4f}<br>PCC: {pcc:.4f}<br>SRCC: {srcc:.4f}",
                                         showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
-            
             # Update the background color and grid settings for the new graphs
             forecasting_fig.update_xaxes(showgrid=False, row=topic+1, col=4)
             forecasting_fig.update_yaxes(showgrid=False, row=topic+1, col=4)
@@ -519,17 +526,104 @@ def main():
         mse_scores_all.append(mse_scores)
         mae_scores_all.append(mae_scores)
         r2_scores_all.append(r2_scores)
+        pcc_scores_all.append(pcc_scores)
+        srcc_scores_all.append(srcc_scores)
+    
+
+
+
+
+
+    # Combined model for all topics
+    print(f"Processing Combined Model for All Topics")
+    combined_topic_strengths = np.array([strengths for strengths in combined_topic_strengths_aligned.values()]).T
+    X_combined, y_combined = forecast_topic_strengths(combined_topic_strengths, combined_weather, lag_weeks)
+
+    # Replace missing values with the mean of the corresponding feature
+    X_combined = np.where(np.isnan(X_combined), np.ma.array(X_combined, mask=np.isnan(X_combined)).mean(axis=0), X_combined)
+
+    # Define the training and testing indices
+    train_size_combined = int(0.8 * len(X_combined))
+    X_train_combined, y_train_combined = X_combined[:train_size_combined], y_combined[:train_size_combined]
+    X_test_combined, y_test_combined = X_combined[train_size_combined:], y_combined[train_size_combined:]
+
+    # Train the Gradient Boosting model
+    gb_model_combined = GradientBoostingRegressor(n_estimators=150, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
+    gb_model_combined.fit(X_train_combined, y_train_combined)
+
+    # Make predictions on the testing set
+    y_pred_combined = gb_model_combined.predict(X_test_combined)
+
+    # Create a new figure for the combined model
+    combined_fig = make_subplots(rows=num_topics, cols=3, subplot_titles=list(chain.from_iterable([[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Impact"] for i in range(num_topics)])))
+
+    mse_scores_combined, mae_scores_combined, r2_scores_combined, pcc_scores_combined, srcc_scores_combined = [], [], [], [], []
+
+    for topic in range(num_topics):
+        y_test_topic = y_test_combined[:, topic]
+        y_pred_topic = y_pred_combined[:, topic]
+
+        # Calculate evaluation metrics
+        mse_topic = mean_squared_error(y_test_topic, y_pred_topic)
+        mae_topic = mean_absolute_error(y_test_topic, y_pred_topic)
+        r2_topic = r2_score(y_test_topic, y_pred_topic)
+        pcc_topic, _ = pearsonr(y_test_topic, y_pred_topic)
+        srcc_topic, _ = spearmanr(y_test_topic, y_pred_topic)
+
+        mse_scores_combined.append(mse_topic)
+        mae_scores_combined.append(mae_topic)
+        r2_scores_combined.append(r2_topic)
+        pcc_scores_combined.append(pcc_topic)
+        srcc_scores_combined.append(srcc_topic)
+
+        print(f"Topic {topic+1} - MSE: {mse_topic:.4f}, MAE: {mae_topic:.4f}, R-squared: {r2_topic:.4f}, PCC: {pcc_topic:.4f}, SRCC: {srcc_topic:.4f}")
+
+        # Add traces to the combined model figure
+        combined_fig.add_trace(go.Scatter(x=combined_weather.index[train_size_combined+lag_weeks:], y=y_test_topic, mode='lines', name=f'Actual Topic {topic+1}'), row=topic+1, col=1)
+        combined_fig.add_trace(go.Scatter(x=combined_weather.index[train_size_combined+lag_weeks:], y=y_pred_topic, mode='lines', name=f'Predicted Topic {topic+1}'), row=topic+1, col=1)
+
+        combined_fig.add_trace(go.Scatter(x=y_test_topic, y=y_pred_topic, mode='markers', name=f'Topic {topic+1}'), row=topic+1, col=2)
+        combined_fig.add_shape(type='line', x0=y_test_topic.min(), y0=y_test_topic.min(), x1=y_test_topic.max(), y1=y_test_topic.max(), line=dict(color='black', dash='dash'), row=topic+1, col=2)
+
+        # Add performance metrics as text
+        combined_fig.add_annotation(x=0.05, y=0.95, xref=f'x{3*topic+2} domain', yref=f'y{3*topic+2} domain',
+                                    text=f"MSE: {mse_topic:.4f}<br>MAE: {mae_topic:.4f}<br>R-squared: {r2_topic:.4f}<br>PCC: {pcc_topic:.4f}<br>SRCC: {srcc_topic:.4f}",
+                                    showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
+
+        # Weather Impact Plot
+        weather_vars = ['PRCP', 'TMAX', 'SNOW', 'TMIN']
+        weather_data_test = combined_weather.iloc[train_size_combined+lag_weeks:]
+        base_weather = weather_data_test.median()
+
+        for var in weather_vars:
+            weather_range = np.linspace(weather_data_test[var].min(), weather_data_test[var].max(), 100)
+            predictions = []
+            for val in weather_range:
+                weather_input = base_weather.copy()
+                weather_input[var] = val
+                X_input = np.concatenate((combined_topic_strengths[-lag_weeks:, topic], np.tile(weather_input.values, lag_weeks)))
+                X_input = X_input.reshape(1, -1)
+                prediction = gb_model_combined.predict(X_input)
+                predictions.append(prediction[0, topic])
+            combined_fig.add_trace(go.Scatter(x=weather_range, y=predictions, mode='lines', name=var), row=topic+1, col=3)
+
+        combined_fig.update_xaxes(title_text="Weather Variable", row=topic+1, col=3)
+        combined_fig.update_yaxes(title_text="Predicted Topic Strength", row=topic+1, col=3)
+
+    combined_fig.update_layout(title=f"Topic Strength Forecasting Performance - Combined Model (Testing Period)",
+                            height=600*num_topics, width=1800,
+                            showlegend=False)
+    combined_fig.show()
+    
+
+
+
+
+
 
     # Create a formatted table for performance metrics
     metrics_data = []
-    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores, ktau_scores, nse_scores in zip(
-        ["Chicago", "LA", "Combined"],
-        mse_scores_all,
-        mae_scores_all,
-        r2_scores_all,
-        pcc_scores_all,
-        srcc_scores_all
-    ):
+    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["Chicago", "LA", "Combined"],mse_scores_all,mae_scores_all,r2_scores_all,pcc_scores_all,srcc_scores_all):
         mse_avg = np.mean(mse_scores)
         mae_avg = np.mean(mae_scores)
         r2_avg = np.mean(r2_scores)
@@ -541,8 +635,10 @@ def main():
     print("\nPerformance Metrics:")
     print(metrics_df.to_string(index=False))
 
-    from scipy.stats import t
 
+
+
+    from scipy.stats import t
     # STATISTICAL TESTING
     print("Statistical tests and measures...")
     # Perform statistical tests and update the report

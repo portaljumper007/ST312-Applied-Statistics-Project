@@ -308,12 +308,14 @@ def main():
                 lags = np.arange(-max_lag, max_lag + 1)
                 cross_corr = cross_corr[len(cross_corr) // 2 - max_lag : len(cross_corr) // 2 + max_lag + 1]
 
-                n_bootstraps = 100
+                n_bootstraps = 150
                 bootstrapped_cross_corr = np.zeros((n_bootstraps, len(lags)))
                 for i in range(n_bootstraps):
-                    idx = np.random.choice(len(topic_strengths), size=len(topic_strengths), replace=True)
-                    bootstrapped_topic_strengths = topic_strengths[idx]
-                    bootstrapped_weather_feature = weather_feature[idx]
+                    idx = np.random.choice(len(topic_strengths), size=int(len(topic_strengths)*0.9), replace=False)
+                    bootstrapped_topic_strengths = topic_strengths.copy()
+                    bootstrapped_topic_strengths[idx] = np.mean(weather_feature)
+                    bootstrapped_weather_feature = weather_feature.copy()
+                    bootstrapped_weather_feature[idx] = np.mean(weather_feature)
                     bootstrapped_cross_corr[i] = correlate(bootstrapped_topic_strengths, bootstrapped_weather_feature, mode='same')[len(cross_corr) // 2 - max_lag : len(cross_corr) // 2 + max_lag + 1]
 
                 ci_lower = np.percentile(bootstrapped_cross_corr, 2.5, axis=0)
@@ -327,7 +329,7 @@ def main():
                     x=lags,
                     y=ci_upper,
                     mode='lines',
-                    line=dict(width=0.5, color=f'rgba{(*hex_to_rgb(line_color), 0.5)}'),
+                    line=dict(width=0.75, color=f'rgba{(*hex_to_rgb(line_color), 0.5)}'),
                     showlegend=False,
                     hovertemplate=f'{feature} 95% Confidence Interval<br>Lag: %{{x}} weeks<br>Upper Bound: %{{y:.2f}}'
                 ), row=topic+1, col=2)
@@ -336,8 +338,8 @@ def main():
                     x=lags,
                     y=ci_lower,
                     mode='lines',
-                    line=dict(width=0.5, color=f'rgba{(*hex_to_rgb(line_color), 0.5)}'),
-                    fillcolor=f'rgba{(*hex_to_rgb(line_color), 0.05)}',
+                    line=dict(width=0.75, color=f'rgba{(*hex_to_rgb(line_color), 0.5)}'),
+                    fillcolor=f'rgba{(*hex_to_rgb(line_color), 0.025)}',
                     fill='tonexty',
                     showlegend=False,
                     hovertemplate=f'{feature} 95% Confidence Interval<br>Lag: %{{x}} weeks<br>Lower Bound: %{{y:.2f}}'

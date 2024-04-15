@@ -5,12 +5,12 @@ from scipy.signal import stft
 from scipy.ndimage import gaussian_filter
 import os
 import pickle
-import matplotlib.dates as mdates
 import pandas as pd
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 import statsmodels.api as sm
+from scipy.stats import norm
 
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
@@ -18,6 +18,7 @@ from sklearn.model_selection import train_test_split
 from statsmodels.tsa.seasonal import STL
 from scipy.signal import correlate
 from sklearn.preprocessing import StandardScaler
+from scipy.stats import pearsonr, spearmanr
 
 import charts_NLP_v2
 
@@ -38,7 +39,7 @@ def get_week_year(date):
 
 def main():
     num_topics = 10
-    weekly_topic_strengths = load_or_create_topic_strengths('weekly_topic_strengths.pkl', num_topics)
+    weekly_topic_strengths = load_or_create_topic_strengths('weekly_topic_strengths_norm.pkl', num_topics)
 
 
 
@@ -106,7 +107,7 @@ def main():
         weekly_weather_for_autocorr = weekly_weather.copy()
         weekly_weather_for_autocorr.fillna(0, inplace=True)
 
-        # Normalize weekly_topic_strengths keys to week-year format
+        # Align weekly_topic_strengths keys to week-year format
         normalized_topic_strengths = {get_week_year(pd.Timestamp(week)): strengths
                                     for week, strengths in weekly_topic_strengths.items()}
 
@@ -194,7 +195,7 @@ def main():
         fig.update_xaxes(title_text="Max Temperature (°F)", row=2, col=2)
         fig.update_xaxes(title_text="Snow (in)", row=2, col=3)
         fig.update_xaxes(title_text="Min Temperature (°F)", row=2, col=4)
-        fig.update_layout(height=1800, title_text=f"Exploratory Analysis of Weather Trends and NLP of Music Charts - {location}",
+        fig.update_layout(height=2560, title_text=f"Exploratory Analysis of Weather Trends and NLP of Music Charts - {location}",
                   legend=dict(x=1.02, y=1, borderwidth=1, bgcolor='rgba(255, 255, 255, 0.8)'),
                   hovermode='x unified')
         for i in range(1, 4):
@@ -263,7 +264,7 @@ def main():
             regression_fig.add_trace(go.Scatter(x=np.unique(y_test), y=np.poly1d(np.polyfit(y_test, y_pred_lr, 1))(np.unique(y_test)), mode='lines', name='LR Best Fit', line=dict(color='Red')), row=topic+1, col=1)
             regression_fig.add_trace(go.Scatter(x=np.unique(y_test), y=np.poly1d(np.polyfit(y_test, y_pred_tree, 1))(np.unique(y_test)), mode='lines', name='Tree Best Fit', line=dict(color='Red')), row=topic+1, col=2)
 
-        regression_fig.update_layout(height=5000, width=1200, title_text="Topic Strengths vs Weather Features: Linear Regression & Decision Tree Predictions")
+        regression_fig.update_layout(height=5000, width=2560, title_text=f"Topic Strengths vs Weather Features: Linear Regression & Decision Tree Predictions - {location}")
         regression_fig.show()
 
 
@@ -279,6 +280,10 @@ def main():
         for i in range(num_topics):
             subplot_titles.extend([f"Topic {i+1} Decomposition", f"Topic {i+1} Cross-Correlation"])
         decomposition_and_cross_fig = make_subplots(rows=num_topics, cols=2, subplot_titles=subplot_titles, vertical_spacing=0.02, horizontal_spacing=0.06)
+
+        def hex_to_rgb(hex_color):
+            hex_color = hex_color.lstrip('#')
+            return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
         for topic in range(num_topics):
             topic_strengths = aligned_topic_strengths[topic]
@@ -302,13 +307,46 @@ def main():
                 cross_corr = correlate(topic_strengths, weather_feature, mode='same')
                 lags = np.arange(-max_lag, max_lag + 1)
                 cross_corr = cross_corr[len(cross_corr) // 2 - max_lag : len(cross_corr) // 2 + max_lag + 1]
-                
-                decomposition_and_cross_fig.add_trace(go.Scatter(x=lags, y=cross_corr, mode='lines', name=f'{feature} Cross-Correlation'), row=topic+1, col=2)
+
+                n_bootstraps = 100
+                bootstrapped_cross_corr = np.zeros((n_bootstraps, len(lags)))
+                for i in range(n_bootstraps):
+                    idx = np.random.choice(len(topic_strengths), size=len(topic_strengths), replace=True)
+                    bootstrapped_topic_strengths = topic_strengths[idx]
+                    bootstrapped_weather_feature = weather_feature[idx]
+                    bootstrapped_cross_corr[i] = correlate(bootstrapped_topic_strengths, bootstrapped_weather_feature, mode='same')[len(cross_corr) // 2 - max_lag : len(cross_corr) // 2 + max_lag + 1]
+
+                ci_lower = np.percentile(bootstrapped_cross_corr, 2.5, axis=0)
+                ci_upper = np.percentile(bootstrapped_cross_corr, 97.5, axis=0)
+
+                line_color = px.colors.qualitative.Plotly[len(decomposition_and_cross_fig.data) % len(px.colors.qualitative.Plotly)]
+
+                decomposition_and_cross_fig.add_trace(go.Scatter(x=lags, y=cross_corr, mode='lines', name=f'{feature} Cross-Correlation', line=dict(color=line_color), hovertemplate=f'{feature} Cross-Correlation<br>Lag: %{{x}} weeks<br>Correlation: %{{y:.2f}}'), row=topic+1, col=2)
+
+                decomposition_and_cross_fig.add_trace(go.Scatter(
+                    x=lags,
+                    y=ci_upper,
+                    mode='lines',
+                    line=dict(width=0.5, color=f'rgba{(*hex_to_rgb(line_color), 0.5)}'),
+                    showlegend=False,
+                    hovertemplate=f'{feature} 95% Confidence Interval<br>Lag: %{{x}} weeks<br>Upper Bound: %{{y:.2f}}'
+                ), row=topic+1, col=2)
+
+                decomposition_and_cross_fig.add_trace(go.Scatter(
+                    x=lags,
+                    y=ci_lower,
+                    mode='lines',
+                    line=dict(width=0.5, color=f'rgba{(*hex_to_rgb(line_color), 0.5)}'),
+                    fillcolor=f'rgba{(*hex_to_rgb(line_color), 0.05)}',
+                    fill='tonexty',
+                    showlegend=False,
+                    hovertemplate=f'{feature} 95% Confidence Interval<br>Lag: %{{x}} weeks<br>Lower Bound: %{{y:.2f}}'
+                ), row=topic+1, col=2)
             
             decomposition_and_cross_fig.update_xaxes(title_text="Lag (Weeks)", row=topic+1, col=2)
             decomposition_and_cross_fig.update_yaxes(title_text="Correlation Coefficient", row=topic+1, col=2)
 
-        decomposition_and_cross_fig.update_layout(height=5000, width=1800, title_text=f"Time Series Decomposition and Cross-Correlation Analysis - {location}")
+        decomposition_and_cross_fig.update_layout(height=5000, width=2560, title_text=f"Time Series Decomposition and Cross-Correlation Analysis - {location}")
         decomposition_and_cross_fig.show()
 
 
@@ -329,9 +367,9 @@ def main():
             y.append(topic_strengths[i])
         return np.array(X), np.array(y)
 
-    lag_weeks = 4
-    subplot_titles = [[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Impact"] for i in range(num_topics)]
-    mse_scores_all, mae_scores_all, r2_scores_all = [], [], []
+    lag_weeks = 16
+    subplot_titles = [[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Impact", f"Topic {i+1} - Actual vs Predicted (Weather Only)", f"Topic {i+1} - Performance Metrics (Weather Only)"] for i in range(num_topics)]
+    mse_scores_all, mae_scores_all, r2_scores_all, pcc_scores_all, srcc_scores_all = [], [], [], [], []
 
     # Combine weather data from Chicago and LA
     combined_weather = pd.concat([df.add_prefix(f"{location}_") for location, df in zip(["Chicago", "LA"], dfs)], axis=1, join='inner')
@@ -349,8 +387,8 @@ def main():
 
     for model_data in [("Chicago", dfs[0]), ("LA", dfs[1]), ("Combined", combined_weather)]:
         location, weather_data = model_data
-        forecasting_fig = make_subplots(rows=num_topics, cols=3, subplot_titles=list(chain.from_iterable(subplot_titles)))
-        mse_scores, mae_scores, r2_scores = [], [], []
+        forecasting_fig = make_subplots(rows=num_topics, cols=5, subplot_titles=list(chain.from_iterable(subplot_titles)))
+        mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores = [], [], [], [], []
 
         if location in ["Chicago", "LA"]:
             # Select only numeric columns relevant to the analysis
@@ -374,21 +412,48 @@ def main():
             X_test, y_test = X[train_size:], y[train_size:]
 
             # Train the Gradient Boosting model
-            gb_model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42)
+            gb_model = GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=5, subsample=0.8, random_state=42)
             gb_model.fit(X_train, y_train)
-
             # Make predictions on the testing set
             y_pred = gb_model.predict(X_test)
+
+
+
+            # Train the Gradient Boosting model using only weather data
+            X_weather_only = X[:, -len(weather_data.columns)*lag_weeks:]
+            X_train_weather, y_train_weather = X_weather_only[:train_size], y[:train_size]
+            X_test_weather, y_test_weather = X_weather_only[train_size:], y[train_size:]
+
+            gb_model_weather = GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=5, subsample=0.8, random_state=42)
+            gb_model_weather.fit(X_train_weather, y_train_weather)
+
+            # Make predictions on the testing set using only weather data
+            y_pred_weather = gb_model_weather.predict(X_test_weather)
+
+            # Calculate evaluation metrics for the weather-only model
+            mse_weather = mean_squared_error(y_test_weather, y_pred_weather)
+            mae_weather = mean_absolute_error(y_test_weather, y_pred_weather)
+            r2_weather = r2_score(y_test_weather, y_pred_weather)
+            pcc_weather, _ = pearsonr(y_test_weather, y_pred_weather)
+            srcc_weather, _ = spearmanr(y_test_weather, y_pred_weather)
+
+
 
             # Calculate evaluation metrics
             mse = mean_squared_error(y_test, y_pred)
             mae = mean_absolute_error(y_test, y_pred)
             r2 = r2_score(y_test, y_pred)
+            pcc, _ = pearsonr(y_test, y_pred)
+            srcc, _ = spearmanr(y_test, y_pred)
+
             mse_scores.append(mse)
             mae_scores.append(mae)
             r2_scores.append(r2)
+            pcc_scores.append(pcc)
+            srcc_scores.append(srcc)
 
-            print(f"Topic {topic+1} - MSE: {mse:.4f}, MAE: {mae:.4f}, R-squared: {r2:.4f}")
+            print(f"Topic {topic+1} - MSE: {mse:.4f}, MAE: {mae:.4f}, R-squared: {r2:.4f}, PCC: {pcc:.4f}, SRCC: {srcc:.4f}")
+
 
             # Add traces to the forecasting figure
             forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_test, mode='lines', name=f'Actual Topic {topic+1}'), row=topic+1, col=1)
@@ -398,10 +463,30 @@ def main():
             forecasting_fig.add_trace(go.Scatter(x=y_test, y=y_pred, mode='markers', name=f'Topic {topic+1}'), row=topic+1, col=2)
             forecasting_fig.add_shape(type='line', x0=y_test.min(), y0=y_test.min(), x1=y_test.max(), y1=y_test.max(), line=dict(color='black', dash='dash'), row=topic+1, col=2)
 
+            # Add traces for the weather-only model
+            forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_test_weather, mode='lines', name=f'Actual Topic {topic+1} (Weather Only)'), row=topic+1, col=4)
+            forecasting_fig.add_trace(go.Scatter(x=weekly_weather.index[train_size+lag_weeks:], y=y_pred_weather, mode='lines', name=f'Predicted Topic {topic+1} (Weather Only)'), row=topic+1, col=4)
+
+            forecasting_fig.add_trace(go.Scatter(x=y_test_weather, y=y_pred_weather, mode='markers', name=f'Topic {topic+1} (Weather Only)'), row=topic+1, col=5)
+            forecasting_fig.add_shape(type='line', x0=y_test_weather.min(), y0=y_test_weather.min(), x1=y_test_weather.max(), y1=y_test_weather.max(), line=dict(color='black', dash='dash'), row=topic+1, col=5)
+
+            # Add performance metrics as text for the weather-only model
+            forecasting_fig.add_annotation(x=0.05, y=0.95, xref=f'x{5*topic+5} domain', yref=f'y{5*topic+5} domain',
+                                        text=f"MSE: {mse_weather:.4f}<br>MAE: {mae_weather:.4f}<br>R-squared: {r2_weather:.4f}<br>PCC: {pcc_weather:.4f}<br>SRCC: {srcc_weather:.4f}",
+                                        showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
+
             # Add performance metrics as text
-            forecasting_fig.add_annotation(x=0.05, y=0.95, xref=f'x{3*topic+2} domain', yref=f'y{3*topic+2} domain',
-                                            text=f"MSE: {mse:.4f}<br>MAE: {mae:.4f}<br>R-squared: {r2:.4f}",
-                                            showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
+            forecasting_fig.add_annotation(x=0.05, y=0.95, xref=f'x{5*topic+2} domain', yref=f'y{5*topic+2} domain',
+                                        text=f"MSE: {mse:.4f}<br>MAE: {mae:.4f}<br>R-squared: {r2:.4f}<br>PCC: {pcc:.4f}<br>SRCC: {srcc:.4f}",
+                                        showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
+            
+            # Update the background color and grid settings for the new graphs
+            forecasting_fig.update_xaxes(showgrid=False, row=topic+1, col=4)
+            forecasting_fig.update_yaxes(showgrid=False, row=topic+1, col=4)
+            forecasting_fig.update_xaxes(showgrid=False, row=topic+1, col=5)
+            forecasting_fig.update_yaxes(showgrid=False, row=topic+1, col=5)
+            #forecasting_fig.update_layout({'plot_bgcolor': 'rgba(240, 240, 240, 0.8)'}, row=topic+1, col=4)
+            #forecasting_fig.update_layout({'plot_bgcolor': 'rgba(240, 240, 240, 0.8)'}, row=topic+1, col=5)
 
             # Weather Impact Plot
             if location != "Combined":
@@ -425,7 +510,7 @@ def main():
                 forecasting_fig.update_yaxes(title_text="Predicted Topic Strength", row=topic+1, col=3)
 
         forecasting_fig.update_layout(title=f"Topic Strength Forecasting Performance - {location} (Testing Period)",
-                                    height=600*num_topics, width=1800,
+                                    height=600*num_topics, width=2560,
                                     showlegend=False)
         forecasting_fig.show()
 
@@ -435,16 +520,22 @@ def main():
 
     # Create a formatted table for performance metrics
     metrics_data = []
-    for location, mse_scores, mae_scores, r2_scores in zip(["Chicago", "LA", "Combined"],
-                                                        mse_scores_all,
-                                                        mae_scores_all,
-                                                        r2_scores_all):
+    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores, ktau_scores, nse_scores in zip(
+        ["Chicago", "LA", "Combined"],
+        mse_scores_all,
+        mae_scores_all,
+        r2_scores_all,
+        pcc_scores_all,
+        srcc_scores_all
+    ):
         mse_avg = np.mean(mse_scores)
         mae_avg = np.mean(mae_scores)
         r2_avg = np.mean(r2_scores)
-        metrics_data.append([location, mse_avg, mae_avg, r2_avg])
+        pcc_avg = np.mean(pcc_scores)
+        srcc_avg = np.mean(srcc_scores)
+        metrics_data.append([location, mse_avg, mae_avg, r2_avg, pcc_avg, srcc_avg])
 
-    metrics_df = pd.DataFrame(metrics_data, columns=["Location", "MSE", "MAE", "R-squared"])
+    metrics_df = pd.DataFrame(metrics_data, columns=["Location", "MSE", "MAE", "R-squared", "PCC", "SRCC"])
     print("\nPerformance Metrics:")
     print(metrics_df.to_string(index=False))
 

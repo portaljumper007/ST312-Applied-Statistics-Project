@@ -154,7 +154,7 @@ def main(show_graph=True, num_topics=10, specific_year=None):
             topic_strengths = [weekly_topic_strengths[week].get(topic, 0) for week in weekly_topic_strengths.keys()]
             strength_variance = np.var(topic_strengths)
             # Combine weight distribution and variance scores
-            combined_score = gini_impurity * strength_variance / np.sum(topic_strengths)
+            combined_score = gini_impurity * strength_variance# / np.sum(topic_strengths)
             cluster_topic_scores.append((topic, combined_score))
 
         selected_topic = max(cluster_topic_scores, key=lambda x: x[1])[0]

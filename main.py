@@ -531,10 +531,23 @@ def main():
 
 
 
+    def forecast_topic_strengths_combinedalltopics(topic_strengths, weather_data, lag_weeks=4):
+        X, y = [], []
+        for i in range(lag_weeks, len(topic_strengths)):
+            topic_lags = topic_strengths[i-lag_weeks:i].flatten()
+            weather_lags = weather_data.iloc[i-lag_weeks:i].values.flatten()
+            X.append(np.concatenate((topic_lags, weather_lags)))
+            y.append(topic_strengths[i])
+        return np.array(X), np.array(y)
+
+    from lightgbm import LGBMRegressor
+
+    import xgboost as xgb
+
     # COMBINED LOCATION, ALL TOPICS - FINAL MODEL
     print(f"Processing Combined Model for All Topics")
     combined_topic_strengths = np.array([strengths for strengths in combined_topic_strengths_aligned.values()]).T
-    X_combined, y_combined = forecast_topic_strengths(combined_topic_strengths, combined_weather, lag_weeks)
+    X_combined, y_combined = forecast_topic_strengths_combinedalltopics(combined_topic_strengths, combined_weather, lag_weeks)
 
     # Replace missing values with the mean of the corresponding feature
     X_combined = np.where(np.isnan(X_combined), np.ma.array(X_combined, mask=np.isnan(X_combined)).mean(axis=0), X_combined)
@@ -544,17 +557,14 @@ def main():
     X_train_combined, y_train_combined = X_combined[:train_size_combined], y_combined[:train_size_combined]
     X_test_combined, y_test_combined = X_combined[train_size_combined:], y_combined[train_size_combined:]
 
-    # Train the Gradient Boosting model
-    gb_model_combined = GradientBoostingRegressor(n_estimators=5, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
-    gb_model_combined.fit(X_train_combined, y_train_combined)
+    # Create the XGBoost multi-output regressor
+    xgb_model = xgb.XGBRegressor(n_estimators=100, learning_rate=0.05, objective='reg:squarederror', subsample=0.8, colsample_bytree=0.8, random_state=42)
 
-    # Make predictions on the testing set
-    y_pred_combined = gb_model_combined.predict(X_test_combined)
+    xgb_model.fit(X_train_combined, y_train_combined) # Train the XGBoost model
+    y_pred_combined = xgb_model.predict(X_test_combined) # Make predictions on the testing set
 
     # Create a new figure for the combined model
     combined_fig = make_subplots(rows=num_topics, cols=3, subplot_titles=list(chain.from_iterable([[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Impact"] for i in range(num_topics)])))
-
-    mse_scores_combined, mae_scores_combined, r2_scores_combined, pcc_scores_combined, srcc_scores_combined = [], [], [], [], []
 
     for topic in range(num_topics):
         y_test_topic = y_test_combined[:, topic]
@@ -567,11 +577,11 @@ def main():
         pcc_topic, _ = pearsonr(y_test_topic, y_pred_topic)
         srcc_topic, _ = spearmanr(y_test_topic, y_pred_topic)
 
-        mse_scores_combined.append(mse_topic)
-        mae_scores_combined.append(mae_topic)
-        r2_scores_combined.append(r2_topic)
-        pcc_scores_combined.append(pcc_topic)
-        srcc_scores_combined.append(srcc_topic)
+        mse_scores_all.append(mse_topic)
+        mae_scores_all.append(mae_topic)
+        r2_scores_all.append(r2_topic)
+        pcc_scores_all.append(pcc_topic)
+        srcc_scores_all.append(srcc_topic)
 
         print(f"Topic {topic+1} - MSE: {mse_topic:.4f}, MAE: {mae_topic:.4f}, R-squared: {r2_topic:.4f}, PCC: {pcc_topic:.4f}, SRCC: {srcc_topic:.4f}")
 
@@ -588,7 +598,7 @@ def main():
                                     showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
 
         # Weather Impact Plot
-        weather_vars = ['PRCP', 'TMAX', 'SNOW', 'TMIN']
+        weather_vars = ['Chicago_PRCP', 'Chicago_TMAX', 'Chicago_SNOW', 'Chicago_TMIN', 'LA_PRCP', 'LA_TMAX', 'LA_SNOW', 'LA_TMIN']
         weather_data_test = combined_weather.iloc[train_size_combined+lag_weeks:]
         base_weather = weather_data_test.median()
 
@@ -598,16 +608,16 @@ def main():
             for val in weather_range:
                 weather_input = base_weather.copy()
                 weather_input[var] = val
-                X_input = np.concatenate((combined_topic_strengths[-lag_weeks:, topic], np.tile(weather_input.values, lag_weeks)))
+                X_input = np.concatenate((combined_topic_strengths[-lag_weeks:].flatten(), np.tile(weather_input.values, lag_weeks)))
                 X_input = X_input.reshape(1, -1)
-                prediction = gb_model_combined.predict(X_input)
+                prediction = xgb_model.predict(X_input)
                 predictions.append(prediction[0, topic])
             combined_fig.add_trace(go.Scatter(x=weather_range, y=predictions, mode='lines', name=var), row=topic+1, col=3)
 
         combined_fig.update_xaxes(title_text="Weather Variable", row=topic+1, col=3)
         combined_fig.update_yaxes(title_text="Predicted Topic Strength", row=topic+1, col=3)
 
-    combined_fig.update_layout(title=f"Topic Strength Forecasting Performance - Combined Model (Testing Period)",
+    combined_fig.update_layout(title=f"Topic Strength Forecasting Performance - Combined Weather + Combined Topics (Testing Period)",
                             height=600*num_topics, width=1800,
                             showlegend=False)
     combined_fig.show()
@@ -620,7 +630,7 @@ def main():
 
     # Create a formatted table for performance metrics
     metrics_data = []
-    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["Chicago", "LA", "Combined"],mse_scores_all,mae_scores_all,r2_scores_all,pcc_scores_all,srcc_scores_all):
+    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["Chicago", "LA", "Combined Weather", "Combined Weather + Combined Topics"],mse_scores_all,mae_scores_all,r2_scores_all,pcc_scores_all,srcc_scores_all):
         mse_avg = np.mean(mse_scores)
         mae_avg = np.mean(mae_scores)
         r2_avg = np.mean(r2_scores)
@@ -628,7 +638,7 @@ def main():
         srcc_avg = np.mean(srcc_scores)
         metrics_data.append([location, mse_avg, mae_avg, r2_avg, pcc_avg, srcc_avg])
 
-    metrics_df = pd.DataFrame(metrics_data, columns=["Location", "MSE", "MAE", "R-squared", "PCC", "SRCC"])
+    metrics_df = pd.DataFrame(metrics_data, columns=["Model Name", "MSE", "MAE", "R-squared", "PCC", "SRCC"])
     print("\nPerformance Metrics:")
     print(metrics_df.to_string(index=False))
 

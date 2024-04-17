@@ -3,7 +3,6 @@ from gensim import corpora, models
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem.wordnet import WordNetLemmatizer
-import matplotlib.pyplot as plt
 from collections import defaultdict
 from tqdm import tqdm  # Progress bar library
 from nltk.sentiment import SentimentIntensityAnalyzer
@@ -14,8 +13,15 @@ import scipy.stats as stats
 import plotly.graph_objs as go
 import os
 from plotly.subplots import make_subplots
+from collections import Counter
+import random
 
 sid = SentimentIntensityAnalyzer()
+
+# Seed all randomness
+SEED = 42
+np.random.seed(SEED)
+random.seed(SEED)
 
 def filter_by_sentiment_intensity(tokens):
     return [word for word in tokens if abs(sid.polarity_scores(word)['compound']) > 0.025]
@@ -64,6 +70,7 @@ def load_or_create_data(dictionary_filename, weekly_strengths_filename, lda_mode
             return tokens
 
         print("Preprocessing text...")
+        
         music_df['text'] = music_df['Song']  
         chunk_size = 10000
         processed_texts = []
@@ -74,11 +81,21 @@ def load_or_create_data(dictionary_filename, weekly_strengths_filename, lda_mode
 
         #custom_keyword = "christmas"
         #processed_texts = augment_corpus_with_custom_keywords(processed_texts, custom_keyword)
-
         music_df['text'] = processed_texts
 
 
+        all_words = [word for text in processed_texts for word in text]
+        word_counts = Counter(all_words)
+        top_words = word_counts.most_common(20)
 
+        words, frequencies = zip(*top_words)
+
+        fig = go.Figure(data=[go.Bar(x=words, y=frequencies)])
+        fig.update_layout(title='Top 20 Most Frequent Words in Song Titles (After Preprocessing)',
+                        xaxis_title='Word',
+                        yaxis_title='Frequency',
+                        xaxis_tickangle=-45)
+        fig.show()
 
 
         print("Creating dictionary and document-term matrix...")
@@ -87,8 +104,8 @@ def load_or_create_data(dictionary_filename, weekly_strengths_filename, lda_mode
 
         print("Creating LDA model...")
         num_threads = 12
-        #lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=60, id2word=dictionary, passes=6, workers=num_threads, alpha='symmetric', eta='auto')
-        lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=60, id2word=dictionary, passes=10, workers=num_threads, alpha='asymmetric', eta=0.1)
+        #documentation for LDA multicore: https://radimrehurek.com/gensim/models/ldamulticore.html
+        lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=60, id2word=dictionary, passes=10, workers=num_threads, alpha='asymmetric', eta=0.1, random_state=42) #this is still somewhat random due to "non-determinism in OS scheduling of the worker processes"
 
         print("Analyzing topics across weeks...")
         weekly_topic_strengths = defaultdict(make_default_dict)

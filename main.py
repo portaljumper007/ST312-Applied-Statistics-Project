@@ -67,7 +67,7 @@ def main():
     topic_words_fig.update_layout(title=f"Top Words for Each Topic",
                                 height=200*num_topics, width=800,
                                 showlegend=False)
-    topic_words_fig.show()
+    #topic_words_fig.show() #FIGURE SHOW
 
     #TOPIC STRENGTH MATRIX
     import plotly.figure_factory as ff
@@ -82,7 +82,7 @@ def main():
     # Create the annotated heatmap
     word_strength_matrix = ff.create_annotated_heatmap(z, x=x, y=y, annotation_text=annotations, colorscale='blues', zmid=0)
     word_strength_matrix.update_layout(title='Top Words and Strengths for Each Topic',height=1200,width=1200,xaxis=dict(tickvals=np.arange(10), ticktext=['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th']),yaxis=dict(tickvals=[i for i in range(num_topics)], ticktext=[f"Topic {i+1}" for i in range(num_topics)]),showlegend=False)
-    word_strength_matrix.show()
+    #word_strength_matrix.show() #FIGURE SHOW
 
 
 
@@ -219,7 +219,7 @@ def main():
         for i in range(1, 4):
             for j in range(1, 5):
                 fig.update_yaxes(title_text="Topic Strength", row=i, col=j)
-        fig.show()
+        #fig.show() #FIGURE SHOW
 
 
 
@@ -283,7 +283,7 @@ def main():
             regression_fig.add_trace(go.Scatter(x=np.unique(y_test), y=np.poly1d(np.polyfit(y_test, y_pred_tree, 1))(np.unique(y_test)), mode='lines', name='Tree Best Fit', line=dict(color='Red')), row=topic+1, col=2)
 
         regression_fig.update_layout(height=5000, width=2560, title_text=f"Topic Strengths vs Weather Features: Linear Regression & Decision Tree Predictions - {location}")
-        regression_fig.show()
+        #regression_fig.show() #FIGURE SHOW
 
 
 
@@ -367,7 +367,7 @@ def main():
             decomposition_and_cross_fig.update_yaxes(title_text="Correlation Coefficient", row=topic+1, col=2)
 
         decomposition_and_cross_fig.update_layout(height=5000, width=2560, title_text=f"Time Series Decomposition and Cross-Correlation Analysis - {location}")
-        decomposition_and_cross_fig.show()
+        #decomposition_and_cross_fig.show() #FIGURE SHOW
 
 
 
@@ -411,20 +411,18 @@ def main():
         mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores = [], [], [], [], []
 
         if location in ["Chicago", "LA"]:
-            # Select only numeric columns relevant to the analysis
-            numeric_columns = ['PRCP', 'SNOW', 'TMAX', 'TMIN']
-            weather_numeric = weather_data[numeric_columns]
-            weekly_weather = weather_numeric.groupby(pd.Grouper(freq='W')).mean()
+            numeric_columns = ['PRCP', 'SNOW', 'TMAX', 'TMIN'] # Select only numeric columns relevant to the analysis
         else:
-            weekly_weather = weather_data
+            numeric_columns = ['Chicago_PRCP', 'Chicago_SNOW', 'Chicago_TMAX', 'Chicago_TMIN', 'LA_PRCP', 'LA_SNOW', 'LA_TMAX', 'LA_TMIN'] # Select only numeric columns relevant to the analysis
+        weather_numeric = weather_data[numeric_columns]
+        weekly_weather = weather_numeric.groupby(pd.Grouper(freq='W')).mean()
 
         for topic in range(num_topics):
             print(f"Processing Topic {topic+1}/{num_topics} - {location}")
-            topic_strengths = aligned_topic_strengths[topic] if location in ["Chicago", "LA"] else combined_topic_strengths_aligned[topic]
+            topic_strengths = topic_strengths_aligned[topic] if location in ["Chicago", "LA"] else combined_topic_strengths_aligned[topic]
             X, y = forecast_topic_strengths(topic_strengths, weekly_weather, lag_weeks)
 
-            # Replace missing values with the mean of the corresponding feature
-            X = np.where(np.isnan(X), np.ma.array(X, mask=np.isnan(X)).mean(axis=0), X)
+            X = np.where(np.isnan(X), np.ma.array(X, mask=np.isnan(X)).mean(axis=0), X) # Replace missing values with the mean of the corresponding feature
 
             # Define the training and testing indices
             train_size = int(0.8 * len(X))
@@ -432,10 +430,9 @@ def main():
             X_test, y_test = X[train_size:], y[train_size:]
 
             # Train the Gradient Boosting model
-            gb_model = GradientBoostingRegressor(n_estimators=150, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
+            gb_model = GradientBoostingRegressor(n_estimators=5, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
             gb_model.fit(X_train, y_train)
-            # Make predictions on the testing set
-            y_pred = gb_model.predict(X_test)
+            y_pred = gb_model.predict(X_test) # Make predictions on the testing set
 
 
 
@@ -443,7 +440,7 @@ def main():
             X_weather_only = X[:, -len(weather_data.columns)*lag_weeks:]
             X_train_weather, y_train_weather = X_weather_only[:train_size], y[:train_size]
             X_test_weather, y_test_weather = X_weather_only[train_size:], y[train_size:]
-            gb_model_weather = GradientBoostingRegressor(n_estimators=150, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
+            gb_model_weather = GradientBoostingRegressor(n_estimators=5, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
             gb_model_weather.fit(X_train_weather, y_train_weather)
             # Make predictions on the testing set using only weather data
             y_pred_weather = gb_model_weather.predict(X_test_weather)
@@ -534,7 +531,7 @@ def main():
 
 
 
-    # Combined model for all topics
+    # COMBINED LOCATION, ALL TOPICS - FINAL MODEL
     print(f"Processing Combined Model for All Topics")
     combined_topic_strengths = np.array([strengths for strengths in combined_topic_strengths_aligned.values()]).T
     X_combined, y_combined = forecast_topic_strengths(combined_topic_strengths, combined_weather, lag_weeks)
@@ -548,7 +545,7 @@ def main():
     X_test_combined, y_test_combined = X_combined[train_size_combined:], y_combined[train_size_combined:]
 
     # Train the Gradient Boosting model
-    gb_model_combined = GradientBoostingRegressor(n_estimators=150, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
+    gb_model_combined = GradientBoostingRegressor(n_estimators=5, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
     gb_model_combined.fit(X_train_combined, y_train_combined)
 
     # Make predictions on the testing set

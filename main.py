@@ -430,7 +430,7 @@ def main():
             X_test, y_test = X[train_size:], y[train_size:]
 
             # Train the Gradient Boosting model
-            gb_model = GradientBoostingRegressor(n_estimators=5, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
+            gb_model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
             gb_model.fit(X_train, y_train)
             y_pred = gb_model.predict(X_test) # Make predictions on the testing set
 
@@ -440,7 +440,7 @@ def main():
             X_weather_only = X[:, -len(weather_data.columns)*lag_weeks:]
             X_train_weather, y_train_weather = X_weather_only[:train_size], y[:train_size]
             X_test_weather, y_test_weather = X_weather_only[train_size:], y[train_size:]
-            gb_model_weather = GradientBoostingRegressor(n_estimators=5, learning_rate=0.05, max_depth=4, subsample=0.8, random_state=42)
+            gb_model_weather = GradientBoostingRegressor(n_estimators=100, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
             gb_model_weather.fit(X_train_weather, y_train_weather)
             # Make predictions on the testing set using only weather data
             y_pred_weather = gb_model_weather.predict(X_test_weather)
@@ -558,7 +558,7 @@ def main():
     X_test_combined, y_test_combined = X_combined[train_size_combined:], y_combined[train_size_combined:]
 
     # Create the XGBoost multi-output regressor
-    xgb_model = xgb.XGBRegressor(n_estimators=100, learning_rate=0.05, objective='reg:squarederror', subsample=0.8, colsample_bytree=0.8, random_state=42)
+    xgb_model = xgb.XGBRegressor(n_estimators=100, learning_rate=0.06, objective='reg:squarederror', subsample=0.8, colsample_bytree=0.8, random_state=42)
 
     xgb_model.fit(X_train_combined, y_train_combined) # Train the XGBoost model
     y_pred_combined = xgb_model.predict(X_test_combined) # Make predictions on the testing set

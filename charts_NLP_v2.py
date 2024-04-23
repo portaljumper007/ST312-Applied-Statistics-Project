@@ -107,6 +107,15 @@ def load_or_create_data(dictionary_filename, weekly_strengths_filename, lda_mode
         #documentation for LDA multicore: https://radimrehurek.com/gensim/models/ldamulticore.html
         lda = models.ldamulticore.LdaMulticore(doc_term_matrix, num_topics=60, id2word=dictionary, passes=10, workers=num_threads, alpha='asymmetric', eta=0.1, random_state=42) #this is still somewhat random due to "non-determinism in OS scheduling of the worker processes"
 
+        from gensim.models import CoherenceModel
+        # Calculate perplexity score
+        perplexity = lda.log_perplexity(doc_term_matrix)
+        print(f"Perplexity: {perplexity:.4f}")
+        # Calculate coherence score
+        coherence_model = CoherenceModel(model=lda, texts=processed_texts, dictionary=dictionary, coherence='c_v')
+        coherence_score = coherence_model.get_coherence()
+        print(f"Coherence Score: {coherence_score:.4f}")
+
         print("Analyzing topics across weeks...")
         weekly_topic_strengths = defaultdict(make_default_dict)
 
@@ -188,7 +197,7 @@ def main(show_graph=True, num_topics=10, specific_year=None):
         topic_descriptions = {i: ' '.join([word for word, _ in topic_info[i][:10]]) for i in range(len(selected_topics))}
         weekly_topic_strengths_norm = defaultdict(dict)
 
-        print("BAM", weekly_topic_strengths[list(weekly_topic_strengths.keys())[0]])
+        print("Weekly topic strengths:", weekly_topic_strengths[list(weekly_topic_strengths.keys())[0]])
 
         fig = make_subplots(rows=2, cols=1, subplot_titles=("Topic Strengths Over Time (Raw)", "Topic Strengths Over Time (Rank Normalized)"))
         print("Plotting topic strengths over time...")

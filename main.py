@@ -648,12 +648,10 @@ def main():
     from scipy.stats import t
     # STATISTICAL TESTING
     print("Statistical tests and measures...")
-    # Perform statistical tests and update the report
+    # Perform statistical tests - we use the metric values to do statistical tests across the topics - which allows us to test if the model is performing consistently well across topics for example.
+    #The final model is not used here as we only have the result for all topics (as its trained on all in one go), not one metric result per topic, so we can't confidence test that.
     confidence_level = 0.95
-    for location, mse_scores, mae_scores, r2_scores in zip(["Chicago", "LA", "Combined"],
-                                                        mse_scores_all,
-                                                        mae_scores_all,
-                                                        r2_scores_all):
+    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["Chicago", "LA", "Combined Weather"],mse_scores_all,mae_scores_all,r2_scores_all,pcc_scores_all,srcc_scores_all):
         n = len(mse_scores)
         mse_mean = np.mean(mse_scores)
         mse_std = np.std(mse_scores)
@@ -666,10 +664,21 @@ def main():
         r2_mean = np.mean(r2_scores)
         r2_std = np.std(r2_scores)
         r2_ci = t.interval(confidence_level, n-1, loc=r2_mean, scale=r2_std/np.sqrt(n))
+
+        pcc_mean = np.mean(pcc_scores)
+        pcc_std = np.std(pcc_scores)
+        pcc_ci = t.interval(confidence_level, n-1, loc=pcc_mean, scale=pcc_std/np.sqrt(n))
+
+        srcc_mean = np.mean(srcc_scores)
+        srcc_std = np.std(srcc_scores)
+        srcc_ci = t.interval(confidence_level, n-1, loc=srcc_mean, scale=srcc_std/np.sqrt(n))
         
         print(f"{location} - MSE CI: {mse_ci[0]:.4f}, {mse_ci[1]:.4f}")
         print(f"{location} - MAE CI: {mae_ci[0]:.4f}, {mae_ci[1]:.4f}")
         print(f"{location} - R-squared CI: {r2_ci[0]:.4f}, {r2_ci[1]:.4f}")
+        print(f"{location} - PCC CI: {pcc_ci[0]:.4f}, {pcc_ci[1]:.4f}")
+        print(f"{location} - SRCC CI: {srcc_ci[0]:.4f}, {srcc_ci[1]:.4f}")
+    
 
 if __name__ == '__main__':
     main()

@@ -388,7 +388,7 @@ def main():
         return np.array(X), np.array(y)
 
     lag_weeks = 16
-    subplot_titles = [[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Impact", f"Topic {i+1} - Actual vs Predicted (Weather Only)", f"Topic {i+1} - Performance Metrics (Weather Only)"] for i in range(num_topics)]
+    subplot_titles = [[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Partial Dependence", f"Topic {i+1} - Actual vs Predicted (Weather Only)", f"Topic {i+1} - Performance Metrics (Weather Only)"] for i in range(num_topics)]
     mse_scores_all, mae_scores_all, r2_scores_all, pcc_scores_all, srcc_scores_all = [], [], [], [], []
 
     # Combine weather data from Chicago and LA
@@ -405,6 +405,8 @@ def main():
                 strength = 0
             combined_topic_strengths_aligned[topic].append(strength)
 
+    weather_vars = ['PRCP', 'TMAX', 'SNOW', 'TMIN']
+
     for model_data in [("Chicago", dfs[0]), ("LA", dfs[1]), ("Combined", combined_weather)]:
         location, weather_data = model_data
         forecasting_fig = make_subplots(rows=num_topics, cols=5, subplot_titles=list(chain.from_iterable(subplot_titles)))
@@ -416,6 +418,9 @@ def main():
             numeric_columns = ['Chicago_PRCP', 'Chicago_SNOW', 'Chicago_TMAX', 'Chicago_TMIN', 'LA_PRCP', 'LA_SNOW', 'LA_TMAX', 'LA_TMIN'] # Select only numeric columns relevant to the analysis
         weather_numeric = weather_data[numeric_columns]
         weekly_weather = weather_numeric.groupby(pd.Grouper(freq='W')).mean()
+
+        # Create the figure for Partial Dependence Plots
+        pdp_fig = make_subplots(rows=num_topics, cols=4, subplot_titles=[f"Topic {i+1} {var}" for i in range(num_topics) for var in weather_vars])
 
         for topic in range(num_topics):
             print(f"Processing Topic {topic+1}/{num_topics} - {location}")
@@ -430,17 +435,16 @@ def main():
             X_test, y_test = X[train_size:], y[train_size:]
 
             # Train the Gradient Boosting model
-            gb_model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
+            gb_model = GradientBoostingRegressor(n_estimators=3, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
             gb_model.fit(X_train, y_train)
             y_pred = gb_model.predict(X_test) # Make predictions on the testing set
-
 
 
             # Train the Gradient Boosting model using only weather data
             X_weather_only = X[:, -len(weather_data.columns)*lag_weeks:]
             X_train_weather, y_train_weather = X_weather_only[:train_size], y[:train_size]
             X_test_weather, y_test_weather = X_weather_only[train_size:], y[train_size:]
-            gb_model_weather = GradientBoostingRegressor(n_estimators=100, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
+            gb_model_weather = GradientBoostingRegressor(n_estimators=3, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
             gb_model_weather.fit(X_train_weather, y_train_weather)
             # Make predictions on the testing set using only weather data
             y_pred_weather = gb_model_weather.predict(X_test_weather)
@@ -450,7 +454,6 @@ def main():
             r2_weather = r2_score(y_test_weather, y_pred_weather)
             pcc_weather, _ = pearsonr(y_test_weather, y_pred_weather)
             srcc_weather, _ = spearmanr(y_test_weather, y_pred_weather)
-
 
 
             # Calculate evaluation metrics
@@ -491,12 +494,11 @@ def main():
             forecasting_fig.update_yaxes(showgrid=False, row=topic+1, col=4)
             forecasting_fig.update_xaxes(showgrid=False, row=topic+1, col=5)
             forecasting_fig.update_yaxes(showgrid=False, row=topic+1, col=5)
-            #forecasting_fig.update_layout({'plot_bgcolor': 'rgba(240, 240, 240, 0.8)'}, row=topic+1, col=4)
-            #forecasting_fig.update_layout({'plot_bgcolor': 'rgba(240, 240, 240, 0.8)'}, row=topic+1, col=5)
+            #forecasting_fig.update_layout({'plot_bgcolor': 'rgba(240, 240, 240, 0.8)'}, row=topic+1, col=4) #bgcolor doesnt work.
+            #forecasting_fig.update_layout({'plot_bgcolor': 'rgba(240, 240, 240, 0.8)'}, row=topic+1, col=5) #bgcolor doesnt work.
 
-            # Weather Impact Plot
+            # Weather Impact Plot (Partial Dependence)
             if location != "Combined":
-                weather_vars = ['PRCP', 'TMAX', 'SNOW', 'TMIN']
                 weather_data_test = weekly_weather.iloc[train_size+lag_weeks:]
                 base_weather = weather_data_test.median()
 
@@ -515,10 +517,33 @@ def main():
                 forecasting_fig.update_xaxes(title_text="Weather Variable", row=topic+1, col=3)
                 forecasting_fig.update_yaxes(title_text="Predicted Topic Strength", row=topic+1, col=3)
 
-        forecasting_fig.update_layout(title=f"Topic Strength Forecasting Performance - {location} (Testing Period)",
-                                    height=600*num_topics, width=2560,
-                                    showlegend=False)
+
+                # Weather Impact Plot (Partial Dependence) Seperate Figure (one graph per weather variable)
+                weather_data_test = weekly_weather.iloc[train_size+lag_weeks:]
+                base_weather = weather_data_test.median()
+
+                for i, var in enumerate(weather_vars, start=1):
+                    weather_range = np.linspace(weather_data_test[var].min(), weather_data_test[var].max(), 100)
+                    predictions = []
+                    for val in weather_range:
+                        weather_input = base_weather.copy()
+                        weather_input[var] = val
+                        X_input = np.concatenate((topic_strengths[-lag_weeks:], np.tile(weather_input.values, lag_weeks)))
+                        X_input = X_input.reshape(1, -1)
+                        prediction = gb_model.predict(X_input)
+                        predictions.append(prediction[0])
+
+                    pdp_fig.add_trace(go.Scatter(x=weather_range, y=predictions, mode='lines', name=var), row=topic+1, col=i)
+                    pdp_fig.update_xaxes(title_text=var, row=topic+1, col=i)
+                    pdp_fig.update_yaxes(title_text="Predicted Topic Strength", row=topic+1, col=i)
+
+        if location != "Combined":
+            pdp_fig.update_layout(height=600*num_topics, width=1600, title_text=f"Partial Dependence Plots - {location}")
+            pdp_fig.show()
+
+        forecasting_fig.update_layout(title=f"Topic Strength Forecasting Performance - {location} (Testing Period)",height=600*num_topics, width=2560,showlegend=False)
         forecasting_fig.show()
+
 
         mse_scores_all.append(mse_scores)
         mae_scores_all.append(mae_scores)
@@ -526,8 +551,6 @@ def main():
         pcc_scores_all.append(pcc_scores)
         srcc_scores_all.append(srcc_scores)
     
-
-
 
 
 
@@ -564,7 +587,7 @@ def main():
     y_pred_combined = xgb_model.predict(X_test_combined) # Make predictions on the testing set
 
     # Create a new figure for the combined model
-    combined_fig = make_subplots(rows=num_topics, cols=3, subplot_titles=list(chain.from_iterable([[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Impact"] for i in range(num_topics)])))
+    combined_fig = make_subplots(rows=num_topics, cols=3, subplot_titles=list(chain.from_iterable([[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Partial Dependence"] for i in range(num_topics)])))
 
     for topic in range(num_topics):
         y_test_topic = y_test_combined[:, topic]
@@ -597,7 +620,7 @@ def main():
                                     text=f"MSE: {mse_topic:.4f}<br>MAE: {mae_topic:.4f}<br>R-squared: {r2_topic:.4f}<br>PCC: {pcc_topic:.4f}<br>SRCC: {srcc_topic:.4f}",
                                     showarrow=False, align='left', font=dict(size=12), bgcolor='rgba(255, 255, 255, 0.8)')
 
-        # Weather Impact Plot
+        # Weather Impact Plot (Partial Dependence)
         weather_vars = ['Chicago_PRCP', 'Chicago_TMAX', 'Chicago_SNOW', 'Chicago_TMIN', 'LA_PRCP', 'LA_TMAX', 'LA_SNOW', 'LA_TMIN']
         weather_data_test = combined_weather.iloc[train_size_combined+lag_weeks:]
         base_weather = weather_data_test.median()
@@ -621,9 +644,48 @@ def main():
                             height=600*num_topics, width=1800,
                             showlegend=False)
     combined_fig.show()
+
+
+
+    # Create a new figure for Partial Dependence Plots (Combined Model)
+    combined_pdp_fig = make_subplots(rows=num_topics, cols=4, subplot_titles=[f"Topic {i+1} {var}" for i in range(num_topics) for var in ['PRCP', 'TMAX', 'SNOW', 'TMIN']])
+
+    chicago_color = 'blue'
+    la_color = 'green'
+
+    for topic in range(num_topics):
+        weather_vars = ['Chicago_PRCP', 'Chicago_TMAX', 'Chicago_SNOW', 'Chicago_TMIN', 'LA_PRCP', 'LA_TMAX', 'LA_SNOW', 'LA_TMIN']
+        weather_data_test = combined_weather.iloc[train_size_combined+lag_weeks:]
+        base_weather = weather_data_test.median()
+
+        for i, var in enumerate(weather_vars, start=1):
+            weather_range = np.linspace(weather_data_test[var].min(), weather_data_test[var].max(), 100)
+            predictions_chicago = []
+            predictions_la = []
+            for val in weather_range:
+                weather_input = base_weather.copy()
+                weather_input[var] = val
+                X_input_chicago = np.concatenate((combined_topic_strengths[-lag_weeks:].flatten(), np.tile(weather_input[['Chicago_PRCP', 'Chicago_TMAX', 'Chicago_SNOW', 'Chicago_TMIN']].values, lag_weeks), np.tile(weather_input[['LA_PRCP', 'LA_TMAX', 'LA_SNOW', 'LA_TMIN']].values, lag_weeks)))
+                X_input_la = np.concatenate((combined_topic_strengths[-lag_weeks:].flatten(), np.tile(weather_input[['Chicago_PRCP', 'Chicago_TMAX', 'Chicago_SNOW', 'Chicago_TMIN']].values, lag_weeks), np.tile(weather_input[['LA_PRCP', 'LA_TMAX', 'LA_SNOW', 'LA_TMIN']].values, lag_weeks)))
+                X_input_chicago = X_input_chicago.reshape(1, -1)
+                X_input_la = X_input_la.reshape(1, -1)
+                prediction_chicago = xgb_model.predict(X_input_chicago)
+                prediction_la = xgb_model.predict(X_input_la)
+                predictions_chicago.append(prediction_chicago[0, topic])
+                predictions_la.append(prediction_la[0, topic])
+
+            # Add traces
+            if 'Chicago' in var:
+                combined_pdp_fig.add_trace(go.Scatter(x=weather_range, y=predictions_chicago, mode='lines', line=dict(color=chicago_color), name=f'{var}'), row=topic+1, col=1+((i-1)%4))
+            else:
+                combined_pdp_fig.add_trace(go.Scatter(x=weather_range, y=predictions_la, mode='lines', line=dict(color=la_color), name=f'{var}'), row=topic+1, col=1+((i-1)%4))
+
+            combined_pdp_fig.update_xaxes(title_text=var, row=topic+1, col=i)
+            combined_pdp_fig.update_yaxes(title_text="Predicted Topic Strength", row=topic+1, col=i)
+
+    combined_pdp_fig.update_layout(height=600*num_topics, width=1600, title_text=f"Partial Dependence Plots - Combined Weather + Combined Topics")
+    combined_pdp_fig.show()
     
-
-
 
 
 

@@ -544,7 +544,6 @@ def main():
         forecasting_fig.update_layout(title=f"Topic Strength Forecasting Performance - {location} (Testing Period)",height=600*num_topics, width=2560,showlegend=False)
         forecasting_fig.show()
 
-
         mse_scores_all.append(mse_scores)
         mae_scores_all.append(mae_scores)
         r2_scores_all.append(r2_scores)
@@ -587,6 +586,8 @@ def main():
     # Create a new figure for the combined model
     combined_fig = make_subplots(rows=num_topics, cols=3, subplot_titles=list(chain.from_iterable([[f"Topic {i+1} - Actual vs Predicted", f"Topic {i+1} - Performance Metrics", f"Topic {i+1} - Weather Partial Dependence"] for i in range(num_topics)])))
 
+    mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores = [], [], [], [], []
+
     for topic in range(num_topics):
         y_test_topic = y_test_combined[:, topic]
         y_pred_topic = y_pred_combined[:, topic]
@@ -598,11 +599,11 @@ def main():
         pcc_topic, _ = pearsonr(y_test_topic, y_pred_topic)
         srcc_topic, _ = spearmanr(y_test_topic, y_pred_topic)
 
-        mse_scores_all.append(mse_topic)
-        mae_scores_all.append(mae_topic)
-        r2_scores_all.append(r2_topic)
-        pcc_scores_all.append(pcc_topic)
-        srcc_scores_all.append(srcc_topic)
+        mse_scores.append(mse_topic)
+        mae_scores.append(mae_topic)
+        r2_scores.append(r2_topic)
+        pcc_scores.append(pcc_topic)
+        srcc_scores.append(srcc_topic)
 
         print(f"Topic {topic+1} - MSE: {mse_topic:.4f}, MAE: {mae_topic:.4f}, R-squared: {r2_topic:.4f}, PCC: {pcc_topic:.4f}, SRCC: {srcc_topic:.4f}")
 
@@ -643,7 +644,11 @@ def main():
                             showlegend=False)
     combined_fig.show()
 
-
+    mse_scores_all.append(mse_scores)
+    mae_scores_all.append(mae_scores)
+    r2_scores_all.append(r2_scores)
+    pcc_scores_all.append(pcc_scores)
+    srcc_scores_all.append(srcc_scores)
 
     # Create a new figure for Partial Dependence Plots (Combined Model)
     combined_pdp_fig = make_subplots(rows=num_topics, cols=4, subplot_titles=[f"Topic {i+1} {var}" for i in range(num_topics) for var in ['PRCP', 'TMAX', 'SNOW', 'TMIN']])
@@ -717,8 +722,11 @@ def main():
 
     # Perform statistical tests - we use the metric values to do statistical tests across the topics - which allows us to test if the model is performing consistently well across topics for example.
     # The final model is not used here as we only have the result for all topics (as its trained on all in one go), not one metric result per topic, so we can't confidence test that.
+    # WRONG!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     confidence_level = 0.95
-    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["Chicago", "LA", "Combined Weather"], mse_scores_all, mae_scores_all, r2_scores_all, pcc_scores_all, srcc_scores_all):
+    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["GBR Chicago", "GBR LA", "GBR Combined Weather", "XGB Combined Weather + Combined Topics"], mse_scores_all, mae_scores_all, r2_scores_all, pcc_scores_all, srcc_scores_all):
         n = len(mse_scores)
         mse_mean = np.mean(mse_scores)
         mse_std = np.std(mse_scores)
@@ -742,7 +750,7 @@ def main():
         
         ci_data.append([location, f"{mse_ci[0]:.4f}, {mse_ci[1]:.4f}", f"{mae_ci[0]:.4f}, {mae_ci[1]:.4f}", f"{r2_ci[0]:.4f}, {r2_ci[1]:.4f}", f"{pcc_ci[0]:.4f}, {pcc_ci[1]:.4f}", f"{srcc_ci[0]:.4f}, {srcc_ci[1]:.4f}"])
 
-    # Evaluate significance and patterns in Partial Dependence Plots (PDPs)
+    # Evaluate significance and patterns in Partial Dependence Plots (PDPs) for the final XGB model.
     for topic in range(num_topics):
         for var in ['Chicago_PRCP', 'Chicago_TMAX', 'Chicago_SNOW', 'Chicago_TMIN', 'LA_PRCP', 'LA_TMAX', 'LA_SNOW', 'LA_TMIN']:
             weather_range = combined_weather[var].dropna().values
@@ -779,7 +787,7 @@ def main():
     ci_df = pd.DataFrame(ci_data, columns=['Model Name', 'MSE CI', 'MAE CI', 'R-squared CI', 'PCC CI', 'SRCC CI'])
     print(ci_df.to_string(index=False))
 
-    print("\nPartial Dependence Plot (PDP) Evaluation:")
+    print("\nPartial Dependence Plot (PDP) Evaluation (For Final XGB Model):")
     pdp_df = pd.DataFrame(pdp_results, columns=['Topic', 'Weather Variable', 'Slope', 'Intercept', 'R-value', 'p-value', 'Interpretation'])
     print(pdp_df.to_string(index=False))
     

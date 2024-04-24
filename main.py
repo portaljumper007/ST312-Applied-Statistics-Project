@@ -435,7 +435,7 @@ def main():
             X_test, y_test = X[train_size:], y[train_size:]
 
             # Train the Gradient Boosting model
-            gb_model = GradientBoostingRegressor(n_estimators=3, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
+            gb_model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
             gb_model.fit(X_train, y_train)
             y_pred = gb_model.predict(X_test) # Make predictions on the testing set
 
@@ -444,7 +444,7 @@ def main():
             X_weather_only = X[:, -len(weather_data.columns)*lag_weeks:]
             X_train_weather, y_train_weather = X_weather_only[:train_size], y[:train_size]
             X_test_weather, y_test_weather = X_weather_only[train_size:], y[train_size:]
-            gb_model_weather = GradientBoostingRegressor(n_estimators=3, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
+            gb_model_weather = GradientBoostingRegressor(n_estimators=100, learning_rate=0.06, max_depth=4, subsample=0.8, random_state=42)
             gb_model_weather.fit(X_train_weather, y_train_weather)
             # Make predictions on the testing set using only weather data
             y_pred_weather = gb_model_weather.predict(X_test_weather)
@@ -562,8 +562,6 @@ def main():
             X.append(np.concatenate((topic_lags, weather_lags)))
             y.append(topic_strengths[i])
         return np.array(X), np.array(y)
-
-    from lightgbm import LGBMRegressor
 
     import xgboost as xgb
 
@@ -708,12 +706,19 @@ def main():
 
 
     from scipy.stats import t
+    from scipy.stats import linregress
+
     # STATISTICAL TESTING
     print("Statistical tests and measures...")
+
+    # Create lists to store confidence intervals and PDP evaluation results
+    ci_data = []
+    pdp_results = []
+
     # Perform statistical tests - we use the metric values to do statistical tests across the topics - which allows us to test if the model is performing consistently well across topics for example.
-    #The final model is not used here as we only have the result for all topics (as its trained on all in one go), not one metric result per topic, so we can't confidence test that.
+    # The final model is not used here as we only have the result for all topics (as its trained on all in one go), not one metric result per topic, so we can't confidence test that.
     confidence_level = 0.95
-    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["Chicago", "LA", "Combined Weather"],mse_scores_all,mae_scores_all,r2_scores_all,pcc_scores_all,srcc_scores_all):
+    for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["Chicago", "LA", "Combined Weather"], mse_scores_all, mae_scores_all, r2_scores_all, pcc_scores_all, srcc_scores_all):
         n = len(mse_scores)
         mse_mean = np.mean(mse_scores)
         mse_std = np.std(mse_scores)
@@ -735,11 +740,48 @@ def main():
         srcc_std = np.std(srcc_scores)
         srcc_ci = t.interval(confidence_level, n-1, loc=srcc_mean, scale=srcc_std/np.sqrt(n))
         
-        print(f"{location} - MSE CI: {mse_ci[0]:.4f}, {mse_ci[1]:.4f}")
-        print(f"{location} - MAE CI: {mae_ci[0]:.4f}, {mae_ci[1]:.4f}")
-        print(f"{location} - R-squared CI: {r2_ci[0]:.4f}, {r2_ci[1]:.4f}")
-        print(f"{location} - PCC CI: {pcc_ci[0]:.4f}, {pcc_ci[1]:.4f}")
-        print(f"{location} - SRCC CI: {srcc_ci[0]:.4f}, {srcc_ci[1]:.4f}")
+        ci_data.append([location, f"{mse_ci[0]:.4f}, {mse_ci[1]:.4f}", f"{mae_ci[0]:.4f}, {mae_ci[1]:.4f}", f"{r2_ci[0]:.4f}, {r2_ci[1]:.4f}", f"{pcc_ci[0]:.4f}, {pcc_ci[1]:.4f}", f"{srcc_ci[0]:.4f}, {srcc_ci[1]:.4f}"])
+
+    # Evaluate significance and patterns in Partial Dependence Plots (PDPs)
+    for topic in range(num_topics):
+        for var in ['Chicago_PRCP', 'Chicago_TMAX', 'Chicago_SNOW', 'Chicago_TMIN', 'LA_PRCP', 'LA_TMAX', 'LA_SNOW', 'LA_TMIN']:
+            weather_range = combined_weather[var].dropna().values
+            if len(weather_range) <= 1:
+                pdp_results.append([topic+1, var, np.nan, np.nan, np.nan, np.nan, "No data available for this weather variable."])
+                continue
+
+            weather_range = np.linspace(weather_range.min(), weather_range.max(), 100)
+            predictions = []
+            for val in weather_range:
+                weather_input = combined_weather.median().copy()
+                weather_input[var] = val
+                X_input = np.concatenate((combined_topic_strengths[-lag_weeks:].flatten(), np.tile(weather_input.values, lag_weeks)))
+                X_input = X_input.reshape(1, -1)
+                prediction = xgb_model.predict(X_input)
+                predictions.append(prediction[0, topic])
+
+            try:
+                slope, intercept, r_value, p_value, std_err = linregress(weather_range, predictions)
+            except ValueError:
+                pdp_results.append([topic+1, var, np.nan, np.nan, np.nan, np.nan, "Error: Linear regression failed due to constant input values."])
+                continue
+            
+            if abs(slope) > 0.001 and p_value < 0.05:
+                interpretation = f"Significant effect observed. A change in {var} is associated with a substantial change in topic strength."
+            elif p_value >= 0.05:
+                interpretation = f"No significant effect observed."
+            else:
+                interpretation = f"While the effect is statistically significant, the magnitude of the change in topic strength is negligible."
+
+            pdp_results.append([topic+1, var, slope, intercept, r_value, p_value, interpretation])
+
+    print("Confidence Intervals:")
+    ci_df = pd.DataFrame(ci_data, columns=['Model Name', 'MSE CI', 'MAE CI', 'R-squared CI', 'PCC CI', 'SRCC CI'])
+    print(ci_df.to_string(index=False))
+
+    print("\nPartial Dependence Plot (PDP) Evaluation:")
+    pdp_df = pd.DataFrame(pdp_results, columns=['Topic', 'Weather Variable', 'Slope', 'Intercept', 'R-value', 'p-value', 'Interpretation'])
+    print(pdp_df.to_string(index=False))
     
 
 if __name__ == '__main__':

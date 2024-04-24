@@ -678,7 +678,7 @@ def main():
             else:
                 combined_pdp_fig.add_trace(go.Scatter(x=weather_range, y=predictions_la, mode='lines', line=dict(color=la_color), name=f'{var}'), row=topic+1, col=1+((i-1)%4))
 
-            combined_pdp_fig.update_xaxes(title_text=var, row=topic+1, col=i)
+            combined_pdp_fig.update_xaxes(title_text=var[-4:], row=topic+1, col=i)
             combined_pdp_fig.update_yaxes(title_text="Predicted Topic Strength", row=topic+1, col=i)
 
     combined_pdp_fig.update_layout(height=600*num_topics, width=1600, title_text=f"Partial Dependence Plots - Combined Weather + Combined Topics")

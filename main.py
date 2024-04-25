@@ -232,11 +232,9 @@ def main():
         
         weather_features = weekly_weather.copy().dropna()
 
-        # Ensure topic_strengths is aligned with weather_features
         aligned_topic_strengths = {}
         for topic in range(num_topics):
             topic_strengths = np.array(topic_strengths_aligned[topic])
-            # Ensure only to include lengths that match the weather_features after dropping NA
             aligned_topic_strengths[topic] = topic_strengths[:len(weather_features)]
         
 

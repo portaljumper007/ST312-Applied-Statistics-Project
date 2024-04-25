@@ -721,10 +721,7 @@ def main():
     pdp_results = []
 
     # Perform statistical tests - we use the metric values to do statistical tests across the topics - which allows us to test if the model is performing consistently well across topics for example.
-    # The final model is not used here as we only have the result for all topics (as its trained on all in one go), not one metric result per topic, so we can't confidence test that.
-    # WRONG!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    
     confidence_level = 0.95
     for location, mse_scores, mae_scores, r2_scores, pcc_scores, srcc_scores in zip(["GBR Chicago", "GBR LA", "GBR Combined Weather", "XGB Combined Weather + Combined Topics"], mse_scores_all, mae_scores_all, r2_scores_all, pcc_scores_all, srcc_scores_all):
         n = len(mse_scores)

@@ -157,7 +157,7 @@ def main(show_graph=True, num_topics=10, specific_year=None):
             topic_words[topic, word_id] = strength
     
     from sklearn.decomposition import PCA
-    pca = PCA(n_components=60)  # Choose an appropriate number of components
+    pca = PCA(n_components=60)
     topic_words_reduced = pca.fit_transform(topic_words)
 
     from sklearn.metrics.pairwise import cosine_distances

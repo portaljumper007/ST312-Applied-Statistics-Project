@@ -56,7 +56,7 @@ def load_or_create_data(dictionary_filename, weekly_strengths_filename, lda_mode
         nltk.download('wordnet')
 
         # Load stopwords and lemmatizer just once
-        custom_stop_words = ['like', 'know', 'time', 'one', 'na', 'let', 'go', 'new', 'want', 'back', 'come', 'take']  
+        custom_stop_words = ['like', 'know', 'time', 'one', 'na', 'let', 'go', 'new', 'want', 'back', 'come', 'take'] #we decided not to use custom stopwords as it worsened overfitting with our limited and exponentially distributed word occurrences in the song titles. 
         stop_words = set(stopwords.words('english'))# + custom_stop_words)
         lemmatizer = WordNetLemmatizer()
 

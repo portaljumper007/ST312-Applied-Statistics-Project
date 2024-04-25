@@ -1,3 +1,8 @@
+#ST312
+#Exploring the Correlation Between Weather Patterns and Music Trends
+#Candidate ID's: 28601, 32565
+#Date: 25/04/2024
+
 import pandas as pd
 from gensim import corpora, models
 import nltk

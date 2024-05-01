@@ -72,7 +72,7 @@ def main():
     topic_words_fig.update_layout(title=f"Top Words for Each Topic",
                                 height=200*num_topics, width=800,
                                 showlegend=False)
-    #topic_words_fig.show() #FIGURE SHOW
+    topic_words_fig.show() #FIGURE SHOW
 
     #TOPIC STRENGTH MATRIX
     import plotly.figure_factory as ff
@@ -87,7 +87,7 @@ def main():
     # Create the annotated heatmap
     word_strength_matrix = ff.create_annotated_heatmap(z, x=x, y=y, annotation_text=annotations, colorscale='blues', zmid=0)
     word_strength_matrix.update_layout(title='Top Words and Strengths for Each Topic',height=1200,width=1200,xaxis=dict(tickvals=np.arange(10), ticktext=['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th']),yaxis=dict(tickvals=[i for i in range(num_topics)], ticktext=[f"Topic {i+1}" for i in range(num_topics)]),showlegend=False)
-    #word_strength_matrix.show() #FIGURE SHOW
+    word_strength_matrix.show() #FIGURE SHOW
 
 
 
@@ -224,7 +224,7 @@ def main():
         for i in range(1, 4):
             for j in range(1, 5):
                 fig.update_yaxes(title_text="Topic Strength", row=i, col=j)
-        #fig.show() #FIGURE SHOW
+        fig.show() #FIGURE SHOW
 
 
 
@@ -286,7 +286,7 @@ def main():
             regression_fig.add_trace(go.Scatter(x=np.unique(y_test), y=np.poly1d(np.polyfit(y_test, y_pred_tree, 1))(np.unique(y_test)), mode='lines', name='Tree Best Fit', line=dict(color='Red')), row=topic+1, col=2)
 
         regression_fig.update_layout(height=5000, width=2560, title_text=f"Topic Strengths vs Weather Features: Linear Regression & Decision Tree Predictions - {location}")
-        #regression_fig.show() #FIGURE SHOW
+        regression_fig.show() #FIGURE SHOW
 
 
 
@@ -370,7 +370,7 @@ def main():
             decomposition_and_cross_fig.update_yaxes(title_text="Correlation Coefficient", row=topic+1, col=2)
 
         decomposition_and_cross_fig.update_layout(height=5000, width=2560, title_text=f"Time Series Decomposition and Cross-Correlation Analysis - {location}")
-        #decomposition_and_cross_fig.show() #FIGURE SHOW
+        decomposition_and_cross_fig.show() #FIGURE SHOW
 
 
 
